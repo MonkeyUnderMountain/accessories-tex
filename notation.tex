@@ -74,6 +74,7 @@
 \newcommand{\Spec}{\upoperatorname{Spec}}
 \newcommand{\Proj}{\upoperatorname{Proj}}
 \newcommand{\mSpec}{\upoperatorname{mSpec}}
+\newcommand{\Spf}{\upoperatorname{Spf}}
 
 \newcommand{\calQuot}{\caloperatorname{Quot}}
 \newcommand{\frakQuot}{\frakoperatorname{Quot}}
@@ -300,35 +301,35 @@
 
 
 \newcommand{\contradiction}{
-    \raisebox{-0.6ex}{\makebox[2.4ex][c]{\begin{tikzpicture}
-        \draw (0,0) circle (1.2ex);
-        \draw (0.7 ex, 0.7 ex) -- (-0.4 ex, 0.7 ex);
-        \draw (-0.4 ex, 0.7 ex) -- (0.7 ex, -0.4 ex);
-        \draw (0.7 ex, -0.4 ex) -- (0.7 ex, 0.7 ex);
-        \draw (0.7 ex, 0.7 ex) -- (-0.848 ex, -0.848 ex);
-    \end{tikzpicture}}}
-    \ \ 
+	\raisebox{-0.6ex}{\makebox[2.4ex][c]{\begin{tikzpicture}
+				\draw (0,0) circle (1.2ex);
+				\draw (0.7 ex, 0.7 ex) -- (-0.4 ex, 0.7 ex);
+				\draw (-0.4 ex, 0.7 ex) -- (0.7 ex, -0.4 ex);
+				\draw (0.7 ex, -0.4 ex) -- (0.7 ex, 0.7 ex);
+				\draw (0.7 ex, 0.7 ex) -- (-0.848 ex, -0.848 ex);
+			\end{tikzpicture}}}
+	\ \
 }
 
 % legendre符号
 \makeatletter
 \def\legendre@dash#1#2{\hb@xt@#1{%
-  \kern-#2\p@
-  \cleaders\hbox{\kern.5\p@
-    \vrule\@height.2\p@\@depth.2\p@\@width\p@
-    \kern.5\p@}\hfil
-  \kern-#2\p@
-  }}
+		\kern-#2\p@
+		\cleaders\hbox{\kern.5\p@
+			\vrule\@height.2\p@\@depth.2\p@\@width\p@
+			\kern.5\p@}\hfil
+		\kern-#2\p@
+	}}
 \def\@legendre#1#2#3#4#5{\mathopen{}\left(
-  \sbox\z@{$\genfrac{}{}{0pt}{#1}{#3#4}{#3#5}$}%
-  \dimen@=\wd\z@
-  \kern-\p@\vcenter{\box0}\kern-\dimen@\vcenter{\legendre@dash\dimen@{#2}}\kern-\p@
-  \right)\mathclose{}}
+	\sbox\z@{$\genfrac{}{}{0pt}{#1}{#3#4}{#3#5}$}%
+	\dimen@=\wd\z@
+	\kern-\p@\vcenter{\box0}\kern-\dimen@\vcenter{\legendre@dash\dimen@{#2}}\kern-\p@
+	\right)\mathclose{}}
 \newcommand\legendre[2]{\mathchoice
-  {\@legendre{0}{1}{}{#1}{#2}}
-  {\@legendre{1}{.5}{\vphantom{1}}{#1}{#2}}
-  {\@legendre{2}{0}{\vphantom{1}}{#1}{#2}}
-  {\@legendre{3}{0}{\vphantom{1}}{#1}{#2}}
+	{\@legendre{0}{1}{}{#1}{#2}}
+	{\@legendre{1}{.5}{\vphantom{1}}{#1}{#2}}
+	{\@legendre{2}{0}{\vphantom{1}}{#1}{#2}}
+	{\@legendre{3}{0}{\vphantom{1}}{#1}{#2}}
 }
 \def\dlegendre{\@legendre{0}{1}{}}
 \def\tlegendre{\@legendre{1}{0.5}{\vphantom{1}}}
@@ -345,7 +346,7 @@
 \newcommand{\bbb}{{\mathbb{b}}}
 \newcommand{\bbC}{{\mathbb{C}}}
 \newcommand{\bbc}{{\mathbb{c}}}
-\newcommand{\bbD}{{\mathbb{D}}} 
+\newcommand{\bbD}{{\mathbb{D}}}
 \newcommand{\bbd}{{\mathbb{d}}}
 \newcommand{\bbE}{{\mathbb{E}}}
 \newcommand{\bbe}{{\mathbb{e}}}
