@@ -113,16 +113,24 @@
 
 % Unicode数学字体支持 - 必须在mathtools之后加载
 \RequirePackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}  
-% 设置数学字体
-\setmathfont{STIX Two Math} %
+% 设置数学字体：先建立一个 TeX Live 自带的主字体，再按可用性覆盖。
+% 使用文件名可避免不同系统的 Fontconfig 字体族名称不一致。
+\setmathfont{latinmodern-math.otf}
+\IfFontExistsTF{STIXTwoMath-Regular.otf}{
+  \setmathfont{STIXTwoMath-Regular.otf}
+}{}
 \IfFontExistsTF{Cambria Math}{
   \setmathfont{Cambria Math}[range={\mathalpha}] % Cambria Math is only available on Windows.
 }{
-  \setmathfont{Latin Modern Math}[range={\mathalpha}] % fallback for non-Windows systems
+  \setmathfont{latinmodern-math.otf}[range={\mathalpha}] % fallback for non-Windows systems
 }
-\setmathfont{Libertinus Math}[range=bb] % 
-\setmathfont{STIX Two Math}[range=cal] % like cal, support lowercase
-\setmathfont{Libertinus Math}[range=scr] % like scr, support lowercase
+\IfFontExistsTF{LibertinusMath-Regular.otf}{
+  \setmathfont{LibertinusMath-Regular.otf}[range=bb]
+  \setmathfont{LibertinusMath-Regular.otf}[range=scr]
+}{}
+\IfFontExistsTF{STIXTwoMath-Regular.otf}{
+  \setmathfont{STIXTwoMath-Regular.otf}[range=cal] % supports lowercase calligraphic letters
+}{}
 % \setmathfont{XITS Math}[range=scr] % like scr, support lowercase
 % \setmathfont{TeX Gyre Termes Math}[range=scr] % like scr, support lowercase 
 % \setmathfont{Latin Modern Math}  % like cal, do not support lowercase
