@@ -11,15 +11,24 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 
-STATUSES = ("published", "draft", "planned")
+STATUSES = (
+    "finished-published",
+    "draft-published",
+    "draft-unpublished",
+)
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SELECTOR_RE = re.compile(r"^([1-9][0-9]*)(?:\.([1-9][0-9]*))?$")
 SECTION_IN_BODY_RE = re.compile(r"^\s*\\section(?:\[[^\]]*\])?\{", re.MULTILINE)
 DOCUMENTCLASS_RE = re.compile(r"^\s*\\documentclass(?:\[|\{)", re.MULTILINE)
 TITLE_RE = re.compile(r"^\\title\{.*\}$", re.MULTILINE)
+WATERMARK_RE = re.compile(
+    r"^\s*%?\s*\\usepackage\{draftwatermark\}(?:\s*%.*)?$"
+)
 ENGINE_HEAD = "% !TeX program = xelatex"
 
 
@@ -77,7 +86,10 @@ def require_title(value: str) -> str:
 
 def require_status(value: str) -> str:
     if value not in STATUSES:
-        fail("Status must be published, draft, or planned.")
+        fail(
+            "Status must be finished-published, draft-published, "
+            "or draft-unpublished."
+        )
     return value
 
 
@@ -85,6 +97,56 @@ def require_order(value: int, maximum: int) -> int:
     if value < 1 or value > maximum:
         fail(f"Order must be between 1 and {maximum}.")
     return value
+
+
+def slugify(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", require_title(value))
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
+    if not slug:
+        fail("The title must contain letters or numbers for a generated filename.")
+    return require_slug(slug)
+
+
+def unique_slug(value: str, existing: set[str]) -> str:
+    base = slugify(value)
+    if base not in existing:
+        return base
+    suffix = 2
+    while f"{base}-{suffix}" in existing:
+        suffix += 1
+    return f"{base}-{suffix}"
+
+
+def parse_selector(value: str) -> tuple[int, int | None]:
+    match = SELECTOR_RE.fullmatch(value.strip())
+    if match is None:
+        fail("Use an order such as 2 for a chapter or 2.3 for a section.")
+    chapter_order = int(match.group(1))
+    section_order = int(match.group(2)) if match.group(2) else None
+    return chapter_order, section_order
+
+
+def select_item(
+    data: dict[str, Any], selector: str
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    chapter_order, section_order = parse_selector(selector)
+    chapters = data["book"]["chapters"]
+    if chapter_order > len(chapters):
+        fail(f"Chapter {chapter_order} does not exist.")
+    chapter = chapters[chapter_order - 1]
+    if section_order is None:
+        return chapter, None
+    if section_order > len(chapter["sections"]):
+        fail(f"Section {chapter_order}.{section_order} does not exist.")
+    return chapter, chapter["sections"][section_order - 1]
+
+
+def select_chapter(data: dict[str, Any], selector: str) -> dict[str, Any]:
+    chapter, section = select_item(data, selector)
+    if section is not None:
+        fail(f"{selector} identifies a section; enter a chapter number.")
+    return chapter
 
 
 def tex_escape(value: str) -> str:
@@ -190,8 +252,8 @@ def normalize(data: dict[str, Any]) -> None:
 def validate_manifest(data: Any) -> None:
     if not isinstance(data, dict):
         fail("The manifest root must be a JSON object.")
-    if data.get("schemaVersion") != 1:
-        fail("The manifest schemaVersion must be 1.")
+    if data.get("schemaVersion") != 2:
+        fail("The manifest schemaVersion must be 2.")
     build = data.get("build")
     if not isinstance(build, dict) or build.get("engine") != "xelatex":
         fail("The manifest build engine must be xelatex.")
@@ -289,7 +351,10 @@ def require_title_value(value: Any, field: str) -> str:
 
 def require_status_value(value: Any, field: str) -> str:
     if value not in STATUSES:
-        fail(f"{field} must be published, draft, or planned.")
+        fail(
+            f"{field} must be finished-published, draft-published, "
+            "or draft-unpublished."
+        )
     return value
 
 
@@ -297,34 +362,6 @@ def check_unique(value: str, seen: set[str], description: str) -> None:
     if value in seen:
         fail(f"Duplicate {description}: {value}")
     seen.add(value)
-
-
-def find_chapter(data: dict[str, Any], chapter_id: str) -> dict[str, Any]:
-    for chapter in data["book"]["chapters"]:
-        if chapter["id"] == chapter_id:
-            return chapter
-    fail(f"Unknown chapter: {chapter_id}")
-
-
-def find_chapter_index(data: dict[str, Any], chapter_id: str) -> int:
-    for index, chapter in enumerate(data["book"]["chapters"]):
-        if chapter["id"] == chapter_id:
-            return index
-    fail(f"Unknown chapter: {chapter_id}")
-
-
-def find_section(chapter: dict[str, Any], section_id: str) -> dict[str, Any]:
-    for section in chapter["sections"]:
-        if section["id"] == section_id:
-            return section
-    fail(f"Unknown section: {chapter['id']}/{section_id}")
-
-
-def find_section_index(chapter: dict[str, Any], section_id: str) -> int:
-    for index, section in enumerate(chapter["sections"]):
-        if section["id"] == section_id:
-            return index
-    fail(f"Unknown section: {chapter['id']}/{section_id}")
 
 
 def replace_managed_block(content: str, name: str, body: list[str]) -> str:
@@ -357,31 +394,49 @@ def set_title(content: str, title: str) -> str:
     return TITLE_RE.sub(lambda _: rf"\title{{{escaped}}}", content, count=1)
 
 
+def watermark_package_line(status: str) -> str:
+    require_status(status)
+    return (
+        r"\usepackage{draftwatermark}"
+        if status.startswith("draft-")
+        else r"% \usepackage{draftwatermark}"
+    )
+
+
+def set_watermark(content: str, status: str) -> str:
+    package_line = watermark_package_line(status)
+    begin_text = "% manage-notes:begin watermark"
+    end_text = "% manage-notes:end watermark"
+    lines = content.splitlines()
+    has_begin = any(line.strip() == begin_text for line in lines)
+    has_end = any(line.strip() == end_text for line in lines)
+    if has_begin or has_end:
+        return replace_managed_block(content, "watermark", [package_line])
+
+    matches = [
+        index for index, line in enumerate(lines) if WATERMARK_RE.fullmatch(line)
+    ]
+    if len(matches) != 1:
+        fail("Expected exactly one draftwatermark package line.")
+    index = matches[0]
+    updated = (
+        lines[:index]
+        + [begin_text, package_line, end_text]
+        + lines[index + 1 :]
+    )
+    return "\n".join(updated) + ("\n" if content.endswith("\n") else "")
+
+
 def render_book(data: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for chapter_index, chapter in enumerate(data["book"]["chapters"]):
         title = tex_escape(chapter["title"])
-        status = chapter["status"]
-        if status == "published":
-            lines.append(rf"    \chapter{{{title}}}")
-            for section in chapter["sections"]:
-                section_title = tex_escape(section["title"])
-                section_status = section["status"]
-                body_path = (
-                    f"chapters/{chapter['id']}/{section['id']}/text.tex"
-                )
-                if section_status == "published":
-                    lines.append(rf"        \section{{{section_title}}}")
-                    lines.append(rf"        \input{{{body_path}}}")
-                else:
-                    lines.append(
-                        rf"        % \section{{{section_title}}} % {section_status}"
-                    )
-                    lines.append(
-                        rf"        % \input{{{body_path}}} % {section_status}"
-                    )
-        else:
-            lines.append(rf"    % \chapter{{{title}}} % {status}")
+        lines.append(rf"    \chapter{{{title}}}")
+        for section in chapter["sections"]:
+            section_title = tex_escape(section["title"])
+            body_path = f"chapters/{chapter['id']}/{section['id']}/text.tex"
+            lines.append(rf"        \section{{{section_title}}}")
+            lines.append(rf"        \input{{{body_path}}}")
         if chapter_index != len(data["book"]["chapters"]) - 1:
             lines.append("")
     return lines
@@ -391,13 +446,8 @@ def render_chapter(chapter: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for section in chapter["sections"]:
         title = tex_escape(section["title"])
-        status = section["status"]
-        if status == "published":
-            lines.append(rf"    \section{{{title}}}")
-            lines.append(rf"    \input{{{section['id']}/text.tex}}")
-        else:
-            lines.append(rf"    % \section{{{title}}} % {status}")
-            lines.append(rf"    % \input{{{section['id']}/text.tex}} % {status}")
+        lines.append(rf"    \section{{{title}}}")
+        lines.append(rf"    \input{{{section['id']}/text.tex}}")
     return lines
 
 
@@ -416,6 +466,7 @@ def prepared_updates(data: dict[str, Any]) -> dict[Path, str]:
         content = replace_managed_block(content, "chapters", render_book(data))
         content = set_first_line(content, ENGINE_HEAD)
         content = set_title(content, book["title"])
+        content = set_watermark(content, book["status"])
     except ManageNotesError as error:
         fail(f"{book['tex']}: {error}")
     updates[book_path] = content
@@ -430,6 +481,7 @@ def prepared_updates(data: dict[str, Any]) -> dict[Path, str]:
                 )
                 content = set_first_line(content, ENGINE_HEAD)
                 content = set_title(content, chapter["title"])
+                content = set_watermark(content, chapter["status"])
             except ManageNotesError as error:
                 fail(f"{chapter['tex']}: {error}")
             updates[chapter_path] = content
@@ -450,6 +502,7 @@ def prepared_updates(data: dict[str, Any]) -> dict[Path, str]:
                     )
                     content = set_first_line(content, ENGINE_HEAD)
                     content = set_title(content, section["title"])
+                    content = set_watermark(content, section["status"])
                 except ManageNotesError as error:
                     fail(f"{section['tex']}: {error}")
                 updates[section_path] = content
@@ -510,7 +563,7 @@ def save_and_sync(
     atomic_write(MANIFEST, manifest_text(data))
     for path, content in changes.items():
         atomic_write(path, content)
-    print(f"{description.capitalize()}.")
+    print(f"{description[:1].upper()}{description[1:]}.")
 
 
 def synchronize(data: dict[str, Any], dry_run: bool) -> None:
@@ -538,13 +591,16 @@ def synchronize(data: dict[str, Any], dry_run: bool) -> None:
         print("No synchronization changes were needed.")
 
 
-def chapter_template(chapter_id: str, title: str) -> str:
+def chapter_template(chapter_id: str, title: str, status: str) -> str:
     escaped = tex_escape(title)
+    watermark = watermark_package_line(status)
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
 % !BIB program = biber
 \documentclass[sectionlevel=chapter]{{noteformyself}}
-\usepackage{{draftwatermark}}
+% manage-notes:begin watermark
+{watermark}
+% manage-notes:end watermark
 
 \input{{../../accessories/notation.tex}}
 \addbibresource{{../../accessories/ref.bib}}
@@ -575,13 +631,16 @@ def chapter_template(chapter_id: str, title: str) -> str:
 """
 
 
-def section_template(section_id: str, title: str) -> str:
+def section_template(section_id: str, title: str, status: str) -> str:
     escaped = tex_escape(title)
+    watermark = watermark_package_line(status)
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
 % !BIB program = biber
 \documentclass{{noteformyself}}
-% \usepackage{{draftwatermark}}
+% manage-notes:begin watermark
+{watermark}
+% manage-notes:end watermark
 
 \newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
 \input{{../../../accessories/notation.tex}}
@@ -625,7 +684,11 @@ def ensure_chapter_files(
     wrapper = directory / f"{chapter['id']}.tex"
     appendix = directory / "appendix.tex"
     if new_only:
-        create_file(wrapper, chapter_template(chapter["id"], chapter["title"]), dry_run)
+        create_file(
+            wrapper,
+            chapter_template(chapter["id"], chapter["title"], chapter["status"]),
+            dry_run,
+        )
         create_file(
             appendix,
             f"% !TeX root = {chapter['id']}.tex\n",
@@ -633,7 +696,11 @@ def ensure_chapter_files(
         )
         return
     if not wrapper.exists():
-        create_file(wrapper, chapter_template(chapter["id"], chapter["title"]), dry_run)
+        create_file(
+            wrapper,
+            chapter_template(chapter["id"], chapter["title"], chapter["status"]),
+            dry_run,
+        )
     if not appendix.exists():
         create_file(
             appendix,
@@ -654,7 +721,12 @@ def ensure_section_files(
     body = directory / "text.tex"
     appendix = directory / "appendix.tex"
     files = (
-        (wrapper, section_template(section["id"], section["title"])),
+        (
+            wrapper,
+            section_template(
+                section["id"], section["title"], section["status"]
+            ),
+        ),
         (body, f"% !TeX root = {section['id']}.tex\n"),
         (appendix, f"% !TeX root = {section['id']}.tex\n"),
     )
@@ -665,12 +737,10 @@ def ensure_section_files(
 
 def create_chapter(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter_id = require_slug(args.slug)
     title = require_title(args.title)
     status = require_status(args.status)
     chapters = data["book"]["chapters"]
-    if any(chapter["id"] == chapter_id for chapter in chapters):
-        fail(f"Chapter already exists: {chapter_id}")
+    chapter_id = unique_slug(title, {chapter["id"] for chapter in chapters})
     order = require_order(
         args.order if args.order is not None else len(chapters) + 1,
         len(chapters) + 1,
@@ -688,24 +758,21 @@ def create_chapter(args: argparse.Namespace) -> None:
         "sections": [],
     }
     chapters.insert(order - 1, chapter)
-    if status != "planned":
-        ensure_chapter_files(chapter, args.dry_run, new_only=True)
+    ensure_chapter_files(chapter, args.dry_run, new_only=True)
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=f"create chapter {chapter_id}",
+        description=f"create chapter {order}: {title}",
     )
 
 
 def create_section(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter = find_chapter(data, args.chapter)
-    section_id = require_slug(args.slug)
+    chapter = select_chapter(data, args.chapter)
     title = require_title(args.title)
     status = require_status(args.status)
-    if any(section["id"] == section_id for section in chapter["sections"]):
-        fail(f"Section already exists: {chapter['id']}/{section_id}")
     sections = chapter["sections"]
+    section_id = unique_slug(title, {section["id"] for section in sections})
     order = require_order(
         args.order if args.order is not None else len(sections) + 1,
         len(sections) + 1,
@@ -722,12 +789,13 @@ def create_section(args: argparse.Namespace) -> None:
         "status": status,
     }
     sections.insert(order - 1, section)
-    if status != "planned":
-        ensure_section_files(chapter, section, args.dry_run, new_only=True)
+    ensure_section_files(chapter, section, args.dry_run, new_only=True)
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=f"create section {chapter['id']}/{section_id}",
+        description=(
+            f"create section {chapter['order']}.{order}: {title}"
+        ),
     )
 
 
@@ -750,238 +818,183 @@ def git_target_dirty(path: Path) -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
-def confirm_delete(kind: str, identity: str, args: argparse.Namespace) -> None:
+def confirm_delete(selector: str, args: argparse.Namespace) -> None:
     if args.dry_run or args.yes:
         return
-    expected = f"DELETE {kind}/{identity}"
+    expected = f"DELETE {selector}"
     response = input(f"Type '{expected}' to confirm: ")
     if response != expected:
         fail("Deletion cancelled.")
 
 
-def delete_chapter(args: argparse.Namespace) -> None:
+def delete_item(args: argparse.Namespace) -> None:
     data = load_manifest()
-    index = find_chapter_index(data, args.slug)
-    chapter = data["book"]["chapters"][index]
-    if chapter["sections"] and not args.recursive:
-        fail("The chapter contains sections; pass --recursive to delete it.")
-    directory = safe_chapter_path(chapter["id"])
+    chapter, section = select_item(data, args.item)
+    if section is None:
+        if chapter["sections"] and not args.recursive:
+            fail("The chapter contains sections; pass --recursive to delete it.")
+        directory = safe_chapter_path(chapter["id"])
+        description = f"delete chapter {args.item}: {chapter['title']}"
+    else:
+        directory = safe_chapter_path(chapter["id"], section["id"])
+        description = f"delete section {args.item}: {section['title']}"
     if directory.exists() and git_target_dirty(directory):
         fail(
             f"Refusing to delete modified or untracked files in {relative(directory)}."
         )
-    confirm_delete("chapter", chapter["id"], args)
-    del data["book"]["chapters"][index]
+    confirm_delete(args.item, args)
+    if section is None:
+        del data["book"]["chapters"][chapter["order"] - 1]
+    else:
+        del chapter["sections"][section["order"] - 1]
     if not args.dry_run and directory.exists():
         shutil.rmtree(directory)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=f"delete chapter {chapter['id']}",
-    )
+    save_and_sync(data, dry_run=args.dry_run, description=description)
 
 
-def delete_section(args: argparse.Namespace) -> None:
+def rename_item(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter = find_chapter(data, args.chapter)
-    index = find_section_index(chapter, args.slug)
-    section = chapter["sections"][index]
-    directory = safe_chapter_path(chapter["id"], section["id"])
-    if directory.exists() and git_target_dirty(directory):
-        fail(
-            f"Refusing to delete modified or untracked files in {relative(directory)}."
-        )
-    confirm_delete("section", f"{chapter['id']}/{section['id']}", args)
-    del chapter["sections"][index]
-    if not args.dry_run and directory.exists():
-        shutil.rmtree(directory)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=f"delete section {chapter['id']}/{section['id']}",
-    )
-
-
-def rename_chapter(args: argparse.Namespace) -> None:
-    data = load_manifest()
-    old_id = args.old
-    new_id = require_slug(args.new)
-    chapter = find_chapter(data, old_id)
-    if any(item["id"] == new_id for item in data["book"]["chapters"]):
-        fail(f"Chapter already exists: {new_id}")
-    old_directory = safe_chapter_path(old_id)
-    new_directory = safe_chapter_path(new_id)
+    chapter, section = select_item(data, args.item)
+    new_id = slugify(args.name)
+    if section is None:
+        old_id = chapter["id"]
+        if new_id == old_id:
+            fail(f"Chapter {args.item} already uses the name {new_id}.")
+        if any(item["id"] == new_id for item in data["book"]["chapters"]):
+            fail(f"Another chapter already uses the name {new_id}.")
+        old_directory = safe_chapter_path(old_id)
+        new_directory = safe_chapter_path(new_id)
+        kind = "chapter"
+    else:
+        old_id = section["id"]
+        if new_id == old_id:
+            fail(f"Section {args.item} already uses the name {new_id}.")
+        if any(item["id"] == new_id for item in chapter["sections"]):
+            fail(f"Another section in chapter {chapter['order']} uses {new_id}.")
+        old_directory = safe_chapter_path(chapter["id"], old_id)
+        new_directory = safe_chapter_path(chapter["id"], new_id)
+        kind = "section"
     if new_directory.exists():
         fail(f"Destination already exists: {relative(new_directory)}")
-    if not args.dry_run and old_directory.exists():
+    if not args.dry_run:
+        if not old_directory.is_dir():
+            fail(f"{kind.capitalize()} directory is missing: {relative(old_directory)}")
         old_directory.rename(new_directory)
         old_wrapper = new_directory / f"{old_id}.tex"
         if old_wrapper.exists():
             old_wrapper.rename(new_directory / f"{new_id}.tex")
-    chapter["id"] = new_id
+    if section is None:
+        chapter["id"] = new_id
+    else:
+        section["id"] = new_id
     normalize(data)
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=f"rename chapter {old_id} to {new_id}",
+        description=f"rename {kind} {args.item} from {old_id} to {new_id}",
     )
 
 
-def rename_section(args: argparse.Namespace) -> None:
+def move_item(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter = find_chapter(data, args.chapter)
-    old_id = args.old
-    new_id = require_slug(args.new)
-    section = find_section(chapter, old_id)
-    if any(item["id"] == new_id for item in chapter["sections"]):
-        fail(f"Section already exists: {chapter['id']}/{new_id}")
-    old_directory = safe_chapter_path(chapter["id"], old_id)
-    new_directory = safe_chapter_path(chapter["id"], new_id)
-    if new_directory.exists():
-        fail(f"Destination already exists: {relative(new_directory)}")
-    if not args.dry_run and old_directory.exists():
-        old_directory.rename(new_directory)
-        old_wrapper = new_directory / f"{old_id}.tex"
-        if old_wrapper.exists():
-            old_wrapper.rename(new_directory / f"{new_id}.tex")
-    section["id"] = new_id
-    normalize(data)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=(
-            f"rename section {chapter['id']}/{old_id} to "
-            f"{chapter['id']}/{new_id}"
-        ),
+    source_chapter, source_section = select_item(data, args.item)
+    destination_chapter_order, destination_section_order = parse_selector(
+        args.destination
     )
-
-
-def move_chapter(args: argparse.Namespace) -> None:
-    data = load_manifest()
     chapters = data["book"]["chapters"]
-    old_index = find_chapter_index(data, args.slug)
-    new_order = require_order(args.order, len(chapters))
-    chapter = chapters.pop(old_index)
-    chapters.insert(new_order - 1, chapter)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=f"move chapter {args.slug} to order {new_order}",
-    )
+    if source_section is None:
+        if destination_section_order is not None:
+            fail("Move a chapter to a chapter order such as 4.")
+        new_order = require_order(destination_chapter_order, len(chapters))
+        chapter = chapters.pop(source_chapter["order"] - 1)
+        chapters.insert(new_order - 1, chapter)
+        description = f"move chapter {args.item} to order {new_order}"
+    else:
+        if destination_section_order is None:
+            fail("Move a section to a position such as 4.2.")
+        if destination_chapter_order > len(chapters):
+            fail(f"Chapter {destination_chapter_order} does not exist.")
+        destination = chapters[destination_chapter_order - 1]
+        section = source_chapter["sections"].pop(source_section["order"] - 1)
+        new_order = require_order(
+            destination_section_order, len(destination["sections"]) + 1
+        )
+        if source_chapter is not destination and any(
+            item["id"] == section["id"] for item in destination["sections"]
+        ):
+            fail(
+                f"Chapter {destination_chapter_order} already contains a section "
+                f"named {section['id']}."
+            )
+        old_directory = safe_chapter_path(source_chapter["id"], section["id"])
+        new_directory = safe_chapter_path(destination["id"], section["id"])
+        if source_chapter is not destination and new_directory.exists():
+            fail(f"Destination already exists: {relative(new_directory)}")
+        destination["sections"].insert(new_order - 1, section)
+        if not args.dry_run and source_chapter is not destination:
+            new_directory.parent.mkdir(parents=True, exist_ok=True)
+            old_directory.rename(new_directory)
+        description = (
+            f"move section {args.item} to "
+            f"{destination_chapter_order}.{new_order}"
+        )
 
-
-def move_section(args: argparse.Namespace) -> None:
-    data = load_manifest()
-    source = find_chapter(data, args.from_chapter)
-    destination = find_chapter(data, args.to_chapter)
-    old_index = find_section_index(source, args.slug)
-    if source is not destination and any(
-        item["id"] == args.slug for item in destination["sections"]
-    ):
-        fail(f"Section already exists: {destination['id']}/{args.slug}")
-    section = source["sections"].pop(old_index)
-    maximum = len(destination["sections"]) + 1
-    new_order = require_order(args.order, maximum)
-    old_directory = safe_chapter_path(source["id"], section["id"])
-    new_directory = safe_chapter_path(destination["id"], section["id"])
-    if source is not destination and new_directory.exists():
-        fail(f"Destination already exists: {relative(new_directory)}")
-    destination["sections"].insert(new_order - 1, section)
-    if (
-        not args.dry_run
-        and source is not destination
-        and old_directory.exists()
-    ):
-        new_directory.parent.mkdir(parents=True, exist_ok=True)
-        old_directory.rename(new_directory)
     normalize(data)
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=(
-            f"move section {args.from_chapter}/{args.slug} to "
-            f"{args.to_chapter} at order {new_order}"
-        ),
+        description=description,
     )
 
 
-def retitle_chapter(args: argparse.Namespace) -> None:
+def retitle_item(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter = find_chapter(data, args.slug)
-    chapter["title"] = require_title(args.title)
+    title = require_title(args.title)
+    if args.item == "0":
+        data["book"]["title"] = title
+        kind = "book"
+    else:
+        chapter, section = select_item(data, args.item)
+        target = section if section is not None else chapter
+        target["title"] = title
+        kind = "section" if section is not None else "chapter"
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=f"retitle chapter {chapter['id']}",
+        description=f"retitle {kind} {args.item} as {title}",
     )
 
 
-def retitle_section(args: argparse.Namespace) -> None:
+def set_item_status(args: argparse.Namespace) -> None:
     data = load_manifest()
-    chapter = find_chapter(data, args.chapter)
-    section = find_section(chapter, args.slug)
-    section["title"] = require_title(args.title)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=f"retitle section {chapter['id']}/{section['id']}",
-    )
-
-
-def set_chapter_status(args: argparse.Namespace) -> None:
-    data = load_manifest()
-    chapter = find_chapter(data, args.slug)
     status = require_status(args.status)
-    chapter["status"] = status
-    if status != "planned":
-        ensure_chapter_files(chapter, args.dry_run)
-        for section in chapter["sections"]:
-            if section["status"] != "planned":
-                ensure_section_files(chapter, section, args.dry_run)
+    if args.item == "0":
+        data["book"]["status"] = status
+        kind = "book"
+    else:
+        chapter, section = select_item(data, args.item)
+        target = section if section is not None else chapter
+        target["status"] = status
+        kind = "section" if section is not None else "chapter"
     save_and_sync(
         data,
         dry_run=args.dry_run,
-        description=f"set chapter {chapter['id']} status to {status}",
-    )
-
-
-def set_section_status(args: argparse.Namespace) -> None:
-    data = load_manifest()
-    chapter = find_chapter(data, args.chapter)
-    section = find_section(chapter, args.slug)
-    status = require_status(args.status)
-    section["status"] = status
-    if status != "planned":
-        ensure_section_files(chapter, section, args.dry_run)
-    save_and_sync(
-        data,
-        dry_run=args.dry_run,
-        description=(
-            f"set section {chapter['id']}/{section['id']} status to {status}"
-        ),
+        description=f"set {kind} {args.item} status to {status}",
     )
 
 
 def list_notes(data: dict[str, Any]) -> None:
     book = data["book"]
-    print(f"Book: {book['title']} [{book['status']}]")
-    print(f"  TeX: {book['tex']}")
-    print(f"  PDF: {book['url']}")
+    print(f"\n0. {book['title']} [{book['status']}]\n")
     for chapter in book["chapters"]:
         print(
-            f"{chapter['order']}. {chapter['title']} "
-            f"({chapter['id']}) [{chapter['status']}]"
+            f"{chapter['order']}. {chapter['title']} [{chapter['status']}]"
         )
-        print(f"   TeX: {chapter['tex']}")
-        print(f"   PDF: {chapter['url']}")
         for section in chapter["sections"]:
             print(
                 f"   {chapter['order']}.{section['order']} "
-                f"{section['title']} ({section['id']}) "
-                f"[{section['status']}]"
+                f"{section['title']} [{section['status']}]"
             )
-            print(f"      TeX: {section['tex']}")
-            print(f"      PDF: {section['url']}")
 
 
 def validate_source_tree(data: dict[str, Any]) -> None:
@@ -991,26 +1004,23 @@ def validate_source_tree(data: dict[str, Any]) -> None:
 
     for chapter in book["chapters"]:
         listed_wrappers.add(chapter["tex"])
-        if chapter["status"] != "planned":
-            required_wrappers.add(chapter["tex"])
+        required_wrappers.add(chapter["tex"])
         for section in chapter["sections"]:
             listed_wrappers.add(section["tex"])
-            if section["status"] != "planned":
-                required_wrappers.add(section["tex"])
+            required_wrappers.add(section["tex"])
 
             body = safe_chapter_path(chapter["id"], section["id"], "text.tex")
-            if section["status"] != "planned" and not body.is_file():
+            if not body.is_file():
                 fail(f"Required section body is missing: {relative(body)}")
-            if body.is_file():
-                content = read_text(body)
-                expected_head = f"% !TeX root = {section['id']}.tex"
-                if not content.startswith(expected_head + "\n"):
-                    fail(f"Incorrect or missing TeX root head: {relative(body)}")
-                if SECTION_IN_BODY_RE.search(content):
-                    fail(
-                        f"Section bodies must not contain a top-level "
-                        f"\\section command: {relative(body)}"
-                    )
+            content = read_text(body)
+            expected_head = f"% !TeX root = {section['id']}.tex"
+            if not content.startswith(expected_head + "\n"):
+                fail(f"Incorrect or missing TeX root head: {relative(body)}")
+            if SECTION_IN_BODY_RE.search(content):
+                fail(
+                    f"Section bodies must not contain a top-level "
+                    f"\\section command: {relative(body)}"
+                )
 
     for wrapper in required_wrappers:
         path = ROOT / wrapper
@@ -1080,196 +1090,192 @@ def build_parser() -> argparse.ArgumentParser:
     create = subparsers.add_parser("create", help="create a chapter or section")
     create_types = create.add_subparsers(dest="kind", required=True)
     create_ch = create_types.add_parser("chapter")
-    create_ch.add_argument("slug")
     create_ch.add_argument("title")
-    create_ch.add_argument("status", nargs="?", default="draft", choices=STATUSES)
+    create_ch.add_argument(
+        "status", nargs="?", default="draft-unpublished", choices=STATUSES
+    )
     create_ch.add_argument("order", nargs="?", type=int)
     create_sec = create_types.add_parser("section")
-    create_sec.add_argument("chapter")
-    create_sec.add_argument("slug")
+    create_sec.add_argument("chapter", help="parent chapter order, such as 2")
     create_sec.add_argument("title")
-    create_sec.add_argument("status", nargs="?", default="draft", choices=STATUSES)
+    create_sec.add_argument(
+        "status", nargs="?", default="draft-unpublished", choices=STATUSES
+    )
     create_sec.add_argument("order", nargs="?", type=int)
 
     delete = subparsers.add_parser("delete", help="delete a chapter or section")
-    delete_types = delete.add_subparsers(dest="kind", required=True)
-    delete_ch = delete_types.add_parser("chapter")
-    delete_ch.add_argument("slug")
-    delete_ch.add_argument("--recursive", action="store_true")
-    delete_sec = delete_types.add_parser("section")
-    delete_sec.add_argument("chapter")
-    delete_sec.add_argument("slug")
+    delete.add_argument("item", help="chapter or section order, such as 2 or 2.3")
+    delete.add_argument("--recursive", action="store_true")
 
     rename = subparsers.add_parser("rename", help="rename an ID and its paths")
-    rename_types = rename.add_subparsers(dest="kind", required=True)
-    rename_ch = rename_types.add_parser("chapter")
-    rename_ch.add_argument("old")
-    rename_ch.add_argument("new")
-    rename_sec = rename_types.add_parser("section")
-    rename_sec.add_argument("chapter")
-    rename_sec.add_argument("old")
-    rename_sec.add_argument("new")
+    rename.add_argument("item", help="chapter or section order")
+    rename.add_argument("name", help="new machine-readable name")
 
     move = subparsers.add_parser("move", help="reorder or reparent an item")
-    move_types = move.add_subparsers(dest="kind", required=True)
-    move_ch = move_types.add_parser("chapter")
-    move_ch.add_argument("slug")
-    move_ch.add_argument("order", type=int)
-    move_sec = move_types.add_parser("section")
-    move_sec.add_argument("from_chapter")
-    move_sec.add_argument("slug")
-    move_sec.add_argument("to_chapter")
-    move_sec.add_argument("order", type=int)
+    move.add_argument("item", help="chapter or section order")
+    move.add_argument(
+        "destination",
+        help="new chapter order or section position, such as 4 or 4.2",
+    )
 
     retitle = subparsers.add_parser("retitle", help="change a human-readable title")
-    retitle_types = retitle.add_subparsers(dest="kind", required=True)
-    retitle_ch = retitle_types.add_parser("chapter")
-    retitle_ch.add_argument("slug")
-    retitle_ch.add_argument("title")
-    retitle_sec = retitle_types.add_parser("section")
-    retitle_sec.add_argument("chapter")
-    retitle_sec.add_argument("slug")
-    retitle_sec.add_argument("title")
+    retitle.add_argument("item", help="0 for the book, or a chapter/section order")
+    retitle.add_argument("title")
 
     status = subparsers.add_parser("set-status", help="change publication status")
-    status_types = status.add_subparsers(dest="kind", required=True)
-    status_ch = status_types.add_parser("chapter")
-    status_ch.add_argument("slug")
-    status_ch.add_argument("status", choices=STATUSES)
-    status_sec = status_types.add_parser("section")
-    status_sec.add_argument("chapter")
-    status_sec.add_argument("slug")
-    status_sec.add_argument("status", choices=STATUSES)
+    status.add_argument("item", help="0 for the book, or a chapter/section order")
+    status.add_argument("status", choices=STATUSES)
     return parser
 
 
-def interactive_args(
-    parser: argparse.ArgumentParser, global_args: argparse.Namespace
-) -> argparse.Namespace | None:
-    choices = {
-        "1": ("list",),
-        "2": ("create", "chapter"),
-        "3": ("create", "section"),
-        "4": ("delete", "chapter"),
-        "5": ("delete", "section"),
-        "6": ("rename", "chapter"),
-        "7": ("rename", "section"),
-        "8": ("move", "chapter"),
-        "9": ("move", "section"),
-        "10": ("retitle", "chapter"),
-        "11": ("retitle", "section"),
-        "12": ("set-status", "chapter"),
-        "13": ("set-status", "section"),
-        "14": ("sync",),
-        "15": ("validate",),
-    }
-    print(
-        """Manage notes
-  1) List
-  2) Create chapter
-  3) Create section
-  4) Delete chapter
-  5) Delete section
-  6) Rename chapter
-  7) Rename section
-  8) Move chapter
-  9) Move section
- 10) Retitle chapter
- 11) Retitle section
- 12) Set chapter status
- 13) Set section status
- 14) Synchronize
- 15) Validate
-  0) Exit"""
-    )
-    choice = input("Choice: ").strip()
-    if choice == "0":
+
+def prompt_required(label: str) -> str:
+    value = input(f"{label}: ").strip()
+    if not value:
+        fail(f"{label} may not be empty.")
+    return value
+
+
+def prompt_optional_order() -> int | None:
+    value = input("Order [last]: ").strip()
+    if not value:
         return None
-    prefix = choices.get(choice)
-    if prefix is None:
-        fail("Unknown menu choice.")
+    if not value.isdigit():
+        fail("Order must be a positive integer.")
+    return int(value)
 
-    prompts: dict[tuple[str, ...], list[tuple[str, str]]] = {
-        ("create", "chapter"): [
-            ("Chapter slug", ""),
-            ("Human title", ""),
-            ("Status [draft]", "draft"),
-            ("Order [last]", ""),
-        ],
-        ("create", "section"): [
-            ("Chapter slug", ""),
-            ("Section slug", ""),
-            ("Human title", ""),
-            ("Status [draft]", "draft"),
-            ("Order [last]", ""),
-        ],
-        ("delete", "chapter"): [
-            ("Chapter slug", ""),
-            ("Pass --recursive? [y/N]", "n"),
-        ],
-        ("delete", "section"): [
-            ("Chapter slug", ""),
-            ("Section slug", ""),
-        ],
-        ("rename", "chapter"): [
-            ("Old chapter slug", ""),
-            ("New chapter slug", ""),
-        ],
-        ("rename", "section"): [
-            ("Chapter slug", ""),
-            ("Old section slug", ""),
-            ("New section slug", ""),
-        ],
-        ("move", "chapter"): [
-            ("Chapter slug", ""),
-            ("New order", ""),
-        ],
-        ("move", "section"): [
-            ("Source chapter slug", ""),
-            ("Section slug", ""),
-            ("Destination chapter slug", ""),
-            ("New order", ""),
-        ],
-        ("retitle", "chapter"): [
-            ("Chapter slug", ""),
-            ("New title", ""),
-        ],
-        ("retitle", "section"): [
-            ("Chapter slug", ""),
-            ("Section slug", ""),
-            ("New title", ""),
-        ],
-        ("set-status", "chapter"): [
-            ("Chapter slug", ""),
-            ("Status", ""),
-        ],
-        ("set-status", "section"): [
-            ("Chapter slug", ""),
-            ("Section slug", ""),
-            ("Status", ""),
-        ],
+
+def prompt_status(default: str = "draft-unpublished") -> str:
+    print(
+        "  1) finished-published\n"
+        "  2) draft-published\n"
+        "  3) draft-unpublished"
+    )
+    value = input(f"Status [{default}]: ").strip()
+    choices = {
+        "": default,
+        "1": "finished-published",
+        "2": "draft-published",
+        "3": "draft-unpublished",
     }
-    values: list[str] = []
-    for label, default in prompts.get(prefix, []):
-        value = input(f"{label}: ").strip()
-        values.append(value or default)
+    return require_status(choices.get(value, value))
 
-    arguments: list[str] = []
-    if global_args.dry_run:
-        arguments.append("--dry-run")
-    if global_args.yes:
-        arguments.append("--yes")
-    arguments.extend(prefix)
-    if prefix == ("delete", "chapter"):
-        recursive = values.pop().lower() in {"y", "yes"}
-        arguments.extend(values)
-        if recursive:
-            arguments.append("--recursive")
-    else:
-        while values and values[-1] == "":
-            values.pop()
-        arguments.extend(values)
-    return parser.parse_args(arguments)
+
+def interactive_namespace(
+    global_args: argparse.Namespace, **values: Any
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        dry_run=global_args.dry_run,
+        yes=global_args.yes,
+        **values,
+    )
+
+
+def interactive_loop(global_args: argparse.Namespace) -> None:
+    list_notes(load_manifest())
+    menu = (
+        "\n[a] List       [b] Create      [c] Delete\n"
+        "[d] Rename     [e] Retitle     [f] Move\n"
+        "[g] Set status                 [q] Quit\n"
+    )
+    while True:
+        print(menu)
+        try:
+            choice = input("Choice: ").strip().lower()
+            if choice == "q":
+                return
+            if choice == "a":
+                list_notes(load_manifest())
+                continue
+            if choice == "b":
+                kind = input("Create [c]hapter or [s]ection: ").strip().lower()
+                if kind not in {"c", "s"}:
+                    fail("Choose c for chapter or s for section.")
+                if kind == "c":
+                    args = interactive_namespace(
+                        global_args,
+                        title=prompt_required("Title"),
+                        status=prompt_status(),
+                        order=prompt_optional_order(),
+                    )
+                    create_chapter(args)
+                else:
+                    args = interactive_namespace(
+                        global_args,
+                        chapter=prompt_required("Parent chapter number"),
+                        title=prompt_required("Title"),
+                        status=prompt_status(),
+                        order=prompt_optional_order(),
+                    )
+                    create_section(args)
+            elif choice == "c":
+                item = prompt_required("Item number (for example 2 or 2.3)")
+                chapter, section = select_item(load_manifest(), item)
+                recursive = False
+                if section is None and chapter["sections"]:
+                    recursive = (
+                        input("Delete the chapter and all its sections? [y/N]: ")
+                        .strip()
+                        .lower()
+                        in {"y", "yes"}
+                    )
+                delete_item(
+                    interactive_namespace(
+                        global_args,
+                        item=item,
+                        recursive=recursive,
+                    )
+                )
+            elif choice == "d":
+                rename_item(
+                    interactive_namespace(
+                        global_args,
+                        item=prompt_required(
+                            "Item number (for example 2 or 2.3)"
+                        ),
+                        name=prompt_required("New file/folder name"),
+                    )
+                )
+            elif choice == "e":
+                retitle_item(
+                    interactive_namespace(
+                        global_args,
+                        item=prompt_required(
+                            "Item number (0 for book, or for example 2 or 2.3)"
+                        ),
+                        title=prompt_required("New title"),
+                    )
+                )
+            elif choice == "f":
+                move_item(
+                    interactive_namespace(
+                        global_args,
+                        item=prompt_required(
+                            "Item number (for example 2 or 2.3)"
+                        ),
+                        destination=prompt_required(
+                            "New position (for example 4 or 4.2)"
+                        ),
+                    )
+                )
+            elif choice == "g":
+                set_item_status(
+                    interactive_namespace(
+                        global_args,
+                        item=prompt_required(
+                            "Item number (0 for book, or for example 2 or 2.3)"
+                        ),
+                        status=prompt_status(),
+                    )
+                )
+            else:
+                fail("Choose a, b, c, d, e, f, g, or q.")
+            list_notes(load_manifest())
+        except ManageNotesError as error:
+            print(f"Error: {error}", file=sys.stderr)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
 
 
 def dispatch(args: argparse.Namespace) -> None:
@@ -1283,26 +1289,16 @@ def dispatch(args: argparse.Namespace) -> None:
         create_chapter(args)
     elif args.command == "create" and args.kind == "section":
         create_section(args)
-    elif args.command == "delete" and args.kind == "chapter":
-        delete_chapter(args)
-    elif args.command == "delete" and args.kind == "section":
-        delete_section(args)
-    elif args.command == "rename" and args.kind == "chapter":
-        rename_chapter(args)
-    elif args.command == "rename" and args.kind == "section":
-        rename_section(args)
-    elif args.command == "move" and args.kind == "chapter":
-        move_chapter(args)
-    elif args.command == "move" and args.kind == "section":
-        move_section(args)
-    elif args.command == "retitle" and args.kind == "chapter":
-        retitle_chapter(args)
-    elif args.command == "retitle" and args.kind == "section":
-        retitle_section(args)
-    elif args.command == "set-status" and args.kind == "chapter":
-        set_chapter_status(args)
-    elif args.command == "set-status" and args.kind == "section":
-        set_section_status(args)
+    elif args.command == "delete":
+        delete_item(args)
+    elif args.command == "rename":
+        rename_item(args)
+    elif args.command == "move":
+        move_item(args)
+    elif args.command == "retitle":
+        retitle_item(args)
+    elif args.command == "set-status":
+        set_item_status(args)
     else:
         fail("No command was selected.")
 
@@ -1311,10 +1307,9 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     if args.command is None:
-        args = interactive_args(parser, args)
-        if args is None:
-            return 0
-    dispatch(args)
+        interactive_loop(args)
+    else:
+        dispatch(args)
     return 0
 
 

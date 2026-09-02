@@ -1,2 +1,10 @@
 # Generated LaTeX output
 *.pdf
+
+# PDF assets distributed with the reusable templates
+!templates-of-latex/beamer-ecnu/img/bg.pdf
+!templates-of-latex/beamer-ecnu/img/logo-white.pdf
+!templates-of-latex/beamer-ecnu/img/math-logo.pdf
+!templates-of-latex/noteformyself/template_book.pdf
+!templates-of-latex/noteformyself/template_chapter.pdf
+!templates-of-latex/noteformyself/template_section.pdf
