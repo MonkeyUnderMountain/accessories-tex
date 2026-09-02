@@ -1,0 +1,68 @@
+\documentclass[sectionlevel=book]{noteformyself}
+
+
+\input{../Accessories/notation.tex}             % 加载符号定义文件
+\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
+
+
+\title{Template for the class ``Note for Myself'' in sectionlevel=book}
+\author{The author}
+\date{\today}
+\authorpage{\href{https://www.example.com}{example.com}}
+
+% available on the mode "\sectionlevel=chapter" or "\sectionlevel=book".
+\setCJKfamilyfont{lxgwwenkai}{LXGW WenKai} % 定义霞鹜文楷，若未安装，请去掉相关代码编译或使用其他字体
+\coversentence{\CJKfamily{lxgwwenkai}阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴!}
+\coverimage{placeholder.jpg} % 封面图片
+\covertitlefont{Allura} % 封面标题字体, 若未安装，请去掉相关代码编译或使用其他字体
+% \coverlinecolor{red} % 封面线条颜色
+% \covertextcolor{green} % 封面文字颜色
+
+% available on the mode "\sectionlevel=book".
+\authoremail{email}
+\texsource{\href{https://github.com/MonkeyUnderMountain/TexTemplates}{github.com/MonkeyUnderMountain/TexTemplates}}
+\version{}
+
+\begin{document}
+
+    \maketitle
+
+    \tableofcontents % 生成目录
+
+    \chapter{In sectionlevel=book}
+
+        \input{text.tex} % 这里是正文
+
+        \subsection{sectionlevel=book}
+
+        % In this mode, the section is the highest level, and usually there is only one section in the document. 
+        % There is no title page, no table of contents, and no cover image.
+        % All theorem and definition environments are labelled with a unique number, and the numbering is continuous throughout the document.
+
+        In this mode, the chapter is the highest level.
+        The section is the second level, and the subsection is the third level.
+        The section is numbered with the chapter number, such as 1.1, 1.2, etc.
+        There is a title page, a table of contents, and a cover image.
+        All theorem and definition environments are labelled in the form of chapter.number, such as 1.1, 1.2, etc.
+
+    \chapter{Test}
+
+        Test references \cite{Har77}.
+
+
+        \section{Test Section}
+
+        \subsection{Test Subsection}
+
+        Test plots:
+
+        \begin{figure}[htbp]
+            \begin{center}
+                \input{drawing-1.tex}
+            \end{center}
+        \end{figure}
+
+        There are some test texts here, and some test equations:
+
+    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+\end{document}

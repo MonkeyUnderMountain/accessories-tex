@@ -1,0 +1,52 @@
+\documentclass[sectionlevel=chapter]{noteformyself}
+
+\input{../Accessories/notation.tex}             % 加载符号定义文件
+\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
+
+
+\title{Template for the class ``Note for Myself'' in sectionlevel=chapter}
+\author{Tianle Yang}
+\date{\today}
+\authorpage{\href{www.example.com}{My Homepage}}
+
+% available on the mode "\sectionlevel=chapter" or "\sectionlevel=book".
+\setCJKfamilyfont{lxgwwenkai}{LXGW WenKai} % 定义霞鹜文楷，若未安装，请去掉相关代码编译或使用其他字体
+\coversentence{\CJKfamily{lxgwwenkai}阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴!}
+\coverimage{placeholder.jpg} % 封面图片
+\covertitlefont{Allura} % 封面标题字体, 若未安装，请去掉相关代码编译或使用其他字体
+% \coverlinecolor{red} % 封面线条颜色
+% \covertextcolor{green} % 封面文字颜色
+
+\begin{document}
+
+    \maketitle
+
+    \tableofcontents % 生成目录
+
+    \input{text.tex} % 这里是正文
+
+        \subsection{sectionlevel=section}
+
+        In this mode, the section is the highest level, and usually there are more than one section in the document. 
+        This is a title page.
+        All theorem and definition environments are labelled in the form of section.number, such as 1.1, 1.2, etc.
+
+        Test references \cite{Har77}.
+
+
+    \section{Test Section}
+
+        \subsection{Test Subsection}
+
+        Test plots:
+
+        \begin{figure}[htbp]
+            \begin{center}
+                \input{drawing-1.tex}
+            \end{center}
+        \end{figure}
+
+        There are some test texts here, and some test equations:
+
+    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+\end{document}

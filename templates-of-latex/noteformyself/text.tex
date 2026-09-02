@@ -1,0 +1,169 @@
+\section{Section name}\label{sec:test}
+
+\subsection{Fonts in math mode}
+
+    We use the unicode-math package to support Unicode math symbols. Below is a list of common math symbols, grouped by font/style, with their names:
+
+    \begin{itemize}
+        \item \textbf{Greek letters:} \(\Alpha, \Beta, \Gamma, \Delta, \Epsilon, \Zeta, \Eta, \Theta, \Iota, \Kappa, \Lambda, \Mu, \Nu, \Xi, \Omicron, \Pi, \Rho, \Sigma, \Tau, \Upsilon, \Phi, \Chi, \Psi, \Omega\); 
+        \item \(\alpha, \beta, \gamma, \delta, \epsilon, \varepsilon, \zeta, \eta, \theta, \iota, \kappa, \lambda, \mu, \nu, \xi, \omicron, \pi, \rho, \sigma, \tau, \upsilon, \phi, \varphi, \chi, \psi, \omega\);
+        \item \textbf{Numbers and operators:} \(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, +, -, \times, \div, =, <, >, \leq, \geq\)
+        \item \textbf{Common math symbols:} \(\infty, \partial, \nabla, \forall, \exists, \neg, \land, \lor, \implies, \iff, \subset, \subseteq, \supset, \supseteq, \cup, \cap, \setminus, \emptyset,\injmap,\surjmap,\ratmap,\invlim,\dirlim\);
+        \item \textbf{Musical symbols:} \(\sharp, \flat, \natural\);
+        \item \textbf{math italic:} \(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z\); 
+        \item \(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z\);
+        \item \textbf{Calligraphic:} $\calA, \calB, \calC, \calD, \calE, \calF, \calG, \calH, \calI, \calJ, \calK, \calL, \calM, \calN, \calO, \calP, \calQ, \calR, \calS, \calT, \calU, \calV, \calW, \calX, \calY, \calZ$, 
+        \item $\cala, \calb, \calc, \cald, \cale, \calf, \calg, \calh, \cali, \calj, \calk, \call, \calm, \caln, \calo, \calp, \calq, \calr, \cals, \calt, \calu, \calv, \calw, \calx, \caly, \calz$
+        \item \textbf{Blackboard bold:} \(\bbA, \bbB, \bbC, \bbD, \bbE, \bbF, \bbG, \bbH, \bbI, \bbJ, \bbK, \bbL, \bbM, \bbN, \bbO, \bbP, \bbQ, \bbR, \bbS, \bbT, \bbU, \bbV, \bbW, \bbX, \bbY, \bbZ\);
+        \item \(\bba, \bbb, \bbc, \bbd, \bbe, \bbf, \bbg, \bbh, \bbi, \bbj, \bbk, \bbl, \bbm, \bbn, \bbo, \bbp, \bbq, \bbr, \bbs, \bbt, \bbu, \bbv, \bbw, \bbx, \bby, \bbz\);
+        \item \textbf{Fraktur:} \(\frakA, \frakB, \frakC, \frakD, \frakE, \frakF, \frakG, \frakH, \frakI, \frakJ, \frakK, \frakL, \frakM, \frakN, \frakO, \frakP, \frakQ, \frakR, \frakS, \frakT, \frakU, \frakV, \frakW, \frakX, \frakY, \frakZ\);
+        \item \(\fraka, \frakb, \frakc, \frakd, \frake, \frakf, \frakg, \frakh, \fraki, \frakj, \frakk, \frakl, \frakm, \frakn, \frako, \frakp, \frakq, \frakr, \fraks, \frakt, \fraku, \frakv, \frakw, \frakx, \fraky, \frakz\);
+        \item \textbf{Script:} \(\scrA, \scrB, \scrC, \scrD, \scrE, \scrF, \scrG, \scrH, \scrI, \scrJ, \scrK, \scrL, \scrM, \scrN, \scrO, \scrP, \scrQ, \scrR, \scrS, \scrT, \scrU, \scrV, \scrW, \scrX, \scrY, \scrZ\);
+        \item \(\scra, \scrb, \scrc, \scrd, \scre, \scrf, \scrg, \scrh, \scri, \scrj, \scrk, \scrl, \scrm, \scrn, \scro, \scrp, \scrq, \scrr, \scrs, \scrt, \scru, \scrv, \scrw, \scrx, \scry, \scrz\);
+        \item \textbf{Upright:} \(\upA, \upB, \upC, \upD, \upE, \upF, \upG, \upH, \upI, \upJ, \upK, \upL, \upM, \upN, \upO, \upP, \upQ, \upR, \upS, \upT, \upU, \upV, \upW, \upX, \upY, \upZ\);
+        \item \(\upa, \upb, \upc, \upd, \upe, \upf, \upg, \uph, \upi, \upj, \upk, \upl, \upm, \upn, \upo, \upp, \upq, \upr, \ups, \upt, \upu, \upv, \upw, \upx, \upy, \upz\);
+        \item \textbf{Bold :} \(\bfA, \bfB, \bfC, \bfD, \bfE, \bfF, \bfG, \bfH, \bfI, \bfJ, \bfK, \bfL, \bfM, \bfN, \bfO, \bfP, \bfQ, \bfR, \bfS, \bfT, \bfU, \bfV, \bfW, \bfX, \bfY, \bfZ\);
+        \item \(\bfa, \bfb, \bfc, \bfd, \bfe, \bff, \bfg, \bfh, \bfi, \bfj, \bfk, \bfl, \bfm, \bfn, \bfo, \bfp, \bfq, \bfr, \bfs, \bft, \bfu, \bfv, \bfw, \bfx, \bfy, \bfz\).
+        \item \textbf{Sans-serif:} \(\sfA, \sfB, \sfC, \sfD, \sfE, \sfF, \sfG, \sfH, \sfI, \sfJ, \sfK, \sfL, \sfM, \sfN, \sfO, \sfP, \sfQ, \sfR, \sfS, \sfT, \sfU, \sfV, \sfW, \sfX, \sfY, \sfZ\);
+        \item \(\sfa, \sfb, \sfc, \sfd, \sfe, \sff, \sfg, \sfh, \sfi, \sfj, \sfk, \sfl, \sfm, \sfn, \sfo, \sfp, \sfq, \sfr, \sfs, \sft, \sfu, \sfv, \sfw, \sfx, \sfy, \sfz\);
+        \item \textbf{Roman:} \(\rmA, \rmB, \rmC, \rmD, \rmE, \rmF, \rmG, \rmH, \rmI, \rmJ, \rmK, \rmL, \rmM, \rmN, \rmO, \rmP, \rmQ, \rmR, \rmS, \rmT, \rmU, \rmV, \rmW, \rmX, \rmY, \rmZ\);
+        \item \(\rma, \rmb, \rmc, \rmd, \rme, \rmf, \rmg, \rmh, \rmi, \rmj, \rmk, \rml, \rmm, \rmn, \rmo, \rmp, \rmq, \rmr, \rms, \rmt, \rmu, \rmv, \rmw, \rmx, \rmy, \rmz\);
+    \end{itemize}
+
+\subsection{Theorems and definitions}\label{subsec:theorems_and_definitions}
+    
+    There are two types of theorem environments, one is with background color, the other is without background color. 
+    The following is a list of theorem environments supported by this template:
+    
+    \begin{slogan}
+        This is a slogan environment, it is used to highlight important slogans or quotes.
+    \end{slogan}
+
+    \begin{mainthm}[this is a main theorem]
+        test
+    \end{mainthm}
+
+    \begin{definition}[this is a definition]
+        A \emph{locally ringed space} is a pair \((X, \calO_X)\), where \(X\) is a topological space, and \(\calO_X\) is a sheaf of rings on \(X\), such that for every point \(x \in X\), the stalk \(\calO_{X,x}\) is a local ring.
+    \end{definition}
+
+    \begin{construction}[this is a construction]
+        test
+    \end{construction}
+
+    \begin{notation}[this is a notation]
+        test
+    \end{notation}
+
+    \begin{proposition}[this is a proposition]
+        test 
+    \end{proposition}
+    \begin{proof}
+        This is a proof environment, it is used to prove theorems, propositions, lemmas, corollaries, etc.
+        We allow to use step environments inside the proof environment, such as:
+        \begin{step}\label{step:1_in_proof_1}
+            This is a step environment, it is used to break down the proof into smaller steps.
+        \end{step}
+        \begin{step}\label{step:2_in_proof_1}
+            This is another step environment, it is used to break down the proof into smaller steps.
+        \end{step}
+        And the step environment should be used inside the proof environment.
+        The proof environment will automatically end with a square box.
+    \end{proof}
+    
+    \begin{theorem}[this is a theorem]
+        test i ref a book \cite{FGA05} here.
+    \end{theorem}
+    \begin{proof}
+        This is a proof environment.
+        The step environment is labelled in the proof environment.
+        A new proof environment will refresh the step environment counter.
+        \begin{step}\label{step:1_in_proof_2}
+            Goal 1.
+        \end{step}
+        Proof of Goal 1.
+        
+        \begin{step}\label{step:2_in_proof_2}
+            Goal 2.
+        \end{step}
+        Proof of Goal 2.
+
+        Here we test the hyperlink to the step environment \cref{step:1_in_proof_1}.
+
+        You can also use the claim environment to make a claim in the proof environment, such as:
+        \begin{claim}\label{claim:1_in_proof_2}
+            This is a claim environment, it is used to make a claim in the proof environment.
+        \end{claim}
+        And the claim environment should be used inside the proof environment.
+    \end{proof}
+    \begin{proof}[Proof of \cref{claim:1_in_proof_2}]
+        This is a proof for the \cref{claim:1_in_proof_2}.
+        Here we test the case environment.
+        \begin{case}\label{case:1_in_proof_2}
+            This is a case environment, it is used to break down the proof into smaller cases.
+        \end{case}
+        \begin{case}\label{case:2_in_proof_2}
+            This is another case environment, it is used to break down the proof into smaller cases.
+        \end{case}
+        And the case environment should be used inside the proof environment.
+        
+        Here may be a long equation that needs to be broken across pages:
+        \begin{align*}
+             & 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9  \\
+            = & 3 + 3 + 4 + 5 + 6 + 7 + 8 + 9  \\
+            = & 6 + 4 + 5 + 6 + 7 + 8 + 9  \\
+            = & 10 + 5 + 6 + 7 + 8 + 9  \\
+            = & 15 + 6 + 7 + 8 + 9  \\
+            = & 21 + 7 + 8 + 9  \\
+            = & 28 + 8 + 9  \\
+            = & 36 + 9  \\
+            = & 45
+        \end{align*}
+    \end{proof}
+
+    \begin{lemma}[this is a lemma]
+        test
+    \end{lemma}
+    \begin{proof}
+        Here we test case environment again.
+        \begin{case}\label{case:1_in_proof_3} 
+            This is a case environment, it is used to break down the proof into smaller cases.
+        \end{case}
+        \begin{case}\label{case:2_in_proof_3}
+            This is another case environment, it is used to break down the proof into smaller cases.
+        \end{case}
+    \end{proof}
+
+    \begin{corollary}[this is a corollary]
+        test here we test the hyperlink to the code environment \cref{lst:python_example}.
+    \end{corollary}
+    \begin{question}[this is a question]
+        test
+    \end{question}
+    \begin{conjecture}[this is a conjecture]
+        test
+    \end{conjecture}
+
+    \begin{example}[this is an example]
+        test 
+    \end{example}
+    \begin{exercise}[this is an exercise]
+        test
+    \end{exercise}
+    \begin{remark}[this is a remark]
+        test
+        Here we test the hyperlink to the case environment \cref{case:1_in_proof_2}.
+    \end{remark}
+    \begin{proof}[this is a proof]
+        test, here we test \cref{sec:test} and \cref{subsec:theorems_and_definitions}.
+    \end{proof}
+
+    Here we test the code block environment:
+    \begin{lstlisting}[language=Python, caption=Python code example, label=lst:python_example]
+        def hello():
+            print("Hello, world!")
+    \end{lstlisting}
+
+    \lstinputlisting[language=Python, caption=Python code example from file, label=lst:python_example_from_file]{code.py}
+
+

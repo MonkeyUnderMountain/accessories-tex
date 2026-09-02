@@ -1,0 +1,29 @@
+\documentclass{noteformyself}
+
+\input{../Accessories/notation.tex}             % 加载符号定义文件
+\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
+
+
+\title{Template for the class ``Note for Myself'' in sectionlevel=section}
+\author{The author}
+\date{\today}
+\authorpage{\href{www.example.com}{My Homepage}}
+
+
+\begin{document}
+
+    \maketitle
+
+    % \tableofcontents % 生成目录
+
+    \input{text.tex} % 这里是正文
+
+    \subsection{sectionlevel=section}
+
+    In this mode, the section is the highest level, and usually there is only one section in the document. 
+    There is no title page, no table of contents, and no cover image.
+    All theorem and definition environments are labelled with a unique number, and the numbering is continuous throughout the document.
+
+
+    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+\end{document}
