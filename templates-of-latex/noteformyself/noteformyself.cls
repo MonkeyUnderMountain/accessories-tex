@@ -99,7 +99,6 @@
 \RequirePackage{graphicx}                             % 图形插入支持
 \RequirePackage{longtable}                            % 长表格支持
 \RequirePackage{amsmath,amsthm,amssymb,amsfonts}      % 数学符号和字体支持
-\RequirePackage{thmtools}                             % 高级定理工具包（提供declaretheorem）
 \RequirePackage[dvipsnames]{xcolor}                   % 颜色支持
 \RequirePackage{tikz}                                 % 矢量绘图
 \RequirePackage{pstricks-add}                         % PSTricks扩展
@@ -189,20 +188,19 @@
   }%
 }%
 \makeatother
-% Use \declaretheorem instead of \newtheorem for better cleveref support
-\declaretheorem[sibling=definition,name=Proposition]{proposition}
-\declaretheorem[sibling=definition,name=Theorem]{theorem}
-\declaretheorem[sibling=definition,name=Lemma]{lemma}
-\declaretheorem[sibling=definition,name=Corollary]{corollary}
-\declaretheorem[sibling=definition,name=Conjecture]{conjecture}
-\declaretheorem[sibling=definition,name=Question]{question}
-\declaretheorem[sibling=definition,name=Remark]{remark}
-\declaretheorem[sibling=definition,name=Claim]{claim}
-\declaretheorem[sibling=definition,name=Example]{example}
-\declaretheorem[sibling=definition,name=Exercise]{exercise}
-\declaretheorem[sibling=definition,name=Construction]{construction}
-\declaretheorem[sibling=definition,name=Notation]{notation}
-\declaretheorem[numbered=yes, name=Theorem]{mainthm} % main theorem with global numbering
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{corollary}[definition]{Corollary}
+\newtheorem{conjecture}[definition]{Conjecture}
+\newtheorem{question}[definition]{Question}
+\newtheorem{remark}[definition]{Remark}
+\newtheorem{claim}[definition]{Claim}
+\newtheorem{example}[definition]{Example}
+\newtheorem{exercise}[definition]{Exercise}
+\newtheorem{construction}[definition]{Construction}
+\newtheorem{notation}[definition]{Notation}
+\newtheorem{mainthm}{Theorem} % main theorem with global numbering
 \renewcommand{\themainthm}{\Alph{mainthm}} % Display as A, B, C, ...
 
 % 定义step子环境（在proof环境中使用，每个proof重置计数器）
@@ -320,7 +318,7 @@
 % 定义slogan环境
 \newtheoremstyle{sloganstyle}{}{}{\itshape}{}{\bfseries}{}{ }{}
 \theoremstyle{sloganstyle}
-\declaretheorem[name=Slogan,numbered=no]{slogan}
+\newtheorem*{slogan}{Slogan}
 \tcolorboxenvironment{slogan}{
   boxrule=0pt,
   boxsep=0pt,
