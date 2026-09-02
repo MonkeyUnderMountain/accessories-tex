@@ -1,0 +1,1326 @@
+#!/usr/bin/env python3
+"""Manage the chapters, sections, and public build manifest of this LaTeX note."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+STATUSES = ("published", "draft", "planned")
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SECTION_IN_BODY_RE = re.compile(r"^\s*\\section(?:\[[^\]]*\])?\{", re.MULTILINE)
+DOCUMENTCLASS_RE = re.compile(r"^\s*\\documentclass(?:\[|\{)", re.MULTILINE)
+TITLE_RE = re.compile(r"^\\title\{.*\}$", re.MULTILINE)
+ENGINE_HEAD = "% !TeX program = xelatex"
+
+
+class ManageNotesError(RuntimeError):
+    """An error that can be reported without a traceback."""
+
+
+def find_repo_root() -> Path:
+    configured = os.environ.get("MANAGE_NOTES_ROOT")
+    if configured:
+        root = Path(configured).expanduser().resolve()
+        if not root.is_dir():
+            raise ManageNotesError(f"Repository root does not exist: {root}")
+        return root
+
+    script_dir = Path(__file__).resolve().parent
+    result = subprocess.run(
+        ["git", "-C", str(script_dir), "rev-parse", "--show-superproject-working-tree"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip()).resolve()
+
+    candidate = script_dir.parents[1]
+    if (candidate / ".git").exists():
+        return candidate
+    raise ManageNotesError(
+        "Could not find the parent note repository. Set MANAGE_NOTES_ROOT."
+    )
+
+
+ROOT = find_repo_root()
+MANIFEST_NAME = os.environ.get("MANAGE_NOTES_MANIFEST", "notes.json")
+MANIFEST = ROOT / MANIFEST_NAME
+CHAPTERS_DIR = ROOT / "chapters"
+
+
+def fail(message: str) -> None:
+    raise ManageNotesError(message)
+
+
+def require_slug(value: str) -> str:
+    if not SLUG_RE.fullmatch(value):
+        fail("Slugs must use lowercase letters, numbers, and single hyphens.")
+    return value
+
+
+def require_title(value: str) -> str:
+    if not value or any(character in value for character in "\t\r\n"):
+        fail("Titles must be nonempty, fit on one line, and contain no tabs.")
+    return value
+
+
+def require_status(value: str) -> str:
+    if value not in STATUSES:
+        fail("Status must be published, draft, or planned.")
+    return value
+
+
+def require_order(value: int, maximum: int) -> int:
+    if value < 1 or value > maximum:
+        fail(f"Order must be between 1 and {maximum}.")
+    return value
+
+
+def tex_escape(value: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "#": r"\#",
+        "_": r"\_",
+        "$": r"\$",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in value)
+
+
+def relative(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        fail(f"Path is outside the note repository: {path}")
+
+
+def safe_chapter_path(*parts: str) -> Path:
+    path = CHAPTERS_DIR.joinpath(*parts)
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(CHAPTERS_DIR.resolve())
+    except ValueError:
+        fail(f"Refusing an operation outside the chapters directory: {path}")
+    return path
+
+
+def atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode if path.exists() else None
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        if mode is not None:
+            os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        fail(f"File is not valid UTF-8: {relative(path)} ({error})")
+
+
+def load_manifest() -> dict[str, Any]:
+    if not MANIFEST.is_file():
+        fail(f"Manifest not found: {MANIFEST}")
+    try:
+        data = json.loads(read_text(MANIFEST))
+    except json.JSONDecodeError as error:
+        fail(f"Invalid JSON in {MANIFEST_NAME}: {error}")
+    validate_manifest(data)
+    return data
+
+
+def manifest_text(data: dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def chapter_tex(chapter_id: str) -> str:
+    return f"chapters/{chapter_id}/{chapter_id}.tex"
+
+
+def chapter_url(chapter_id: str) -> str:
+    return f"pdf/chapters/{chapter_id}/{chapter_id}.pdf"
+
+
+def section_tex(chapter_id: str, section_id: str) -> str:
+    return f"chapters/{chapter_id}/{section_id}/{section_id}.tex"
+
+
+def section_url(chapter_id: str, section_id: str) -> str:
+    return f"pdf/chapters/{chapter_id}/{section_id}/{section_id}.pdf"
+
+
+def normalize(data: dict[str, Any]) -> None:
+    for chapter_order, chapter in enumerate(data["book"]["chapters"], start=1):
+        chapter["order"] = chapter_order
+        chapter["tex"] = chapter_tex(chapter["id"])
+        chapter["url"] = chapter_url(chapter["id"])
+        for section_order, section in enumerate(chapter["sections"], start=1):
+            section["order"] = section_order
+            section["tex"] = section_tex(chapter["id"], section["id"])
+            section["url"] = section_url(chapter["id"], section["id"])
+
+
+def validate_manifest(data: Any) -> None:
+    if not isinstance(data, dict):
+        fail("The manifest root must be a JSON object.")
+    if data.get("schemaVersion") != 1:
+        fail("The manifest schemaVersion must be 1.")
+    build = data.get("build")
+    if not isinstance(build, dict) or build.get("engine") != "xelatex":
+        fail("The manifest build engine must be xelatex.")
+    book = data.get("book")
+    if not isinstance(book, dict):
+        fail("The manifest must contain a book object.")
+
+    book_id = require_slug_value(book.get("id"), "book.id")
+    require_title_value(book.get("title"), "book.title")
+    require_status_value(book.get("status"), "book.status")
+    if book.get("tex") != f"{book_id}.tex":
+        fail("book.tex does not match book.id.")
+    if book.get("url") != f"pdf/{book_id}.pdf":
+        fail("book.url does not match book.id.")
+
+    chapters = book.get("chapters")
+    if not isinstance(chapters, list):
+        fail("book.chapters must be an array.")
+    seen_chapters: set[str] = set()
+    seen_tex = {book["tex"]}
+    seen_urls = {book["url"]}
+    for chapter_order, chapter in enumerate(chapters, start=1):
+        if not isinstance(chapter, dict):
+            fail(f"Chapter {chapter_order} must be an object.")
+        chapter_id = require_slug_value(
+            chapter.get("id"), f"chapter {chapter_order}.id"
+        )
+        if chapter_id in seen_chapters:
+            fail(f"Duplicate chapter ID: {chapter_id}")
+        seen_chapters.add(chapter_id)
+        require_title_value(chapter.get("title"), f"chapter {chapter_id}.title")
+        require_status_value(chapter.get("status"), f"chapter {chapter_id}.status")
+        if chapter.get("order") != chapter_order:
+            fail(f"Chapter order is not consecutive at {chapter_id}.")
+        if chapter.get("tex") != chapter_tex(chapter_id):
+            fail(f"Chapter TeX path does not match its ID: {chapter_id}")
+        if chapter.get("url") != chapter_url(chapter_id):
+            fail(f"Chapter PDF URL does not match its ID: {chapter_id}")
+        check_unique(chapter["tex"], seen_tex, "TeX path")
+        check_unique(chapter["url"], seen_urls, "PDF URL")
+
+        sections = chapter.get("sections")
+        if not isinstance(sections, list):
+            fail(f"sections must be an array for chapter {chapter_id}.")
+        seen_sections: set[str] = set()
+        for section_order, section in enumerate(sections, start=1):
+            if not isinstance(section, dict):
+                fail(f"Section {chapter_id}/{section_order} must be an object.")
+            section_id = require_slug_value(
+                section.get("id"), f"section {chapter_id}/{section_order}.id"
+            )
+            if section_id in seen_sections:
+                fail(f"Duplicate section ID in {chapter_id}: {section_id}")
+            seen_sections.add(section_id)
+            require_title_value(
+                section.get("title"), f"section {chapter_id}/{section_id}.title"
+            )
+            require_status_value(
+                section.get("status"), f"section {chapter_id}/{section_id}.status"
+            )
+            if section.get("order") != section_order:
+                fail(
+                    f"Section order is not consecutive at "
+                    f"{chapter_id}/{section_id}."
+                )
+            if section.get("tex") != section_tex(chapter_id, section_id):
+                fail(
+                    f"Section TeX path does not match its IDs: "
+                    f"{chapter_id}/{section_id}"
+                )
+            if section.get("url") != section_url(chapter_id, section_id):
+                fail(
+                    f"Section PDF URL does not match its IDs: "
+                    f"{chapter_id}/{section_id}"
+                )
+            check_unique(section["tex"], seen_tex, "TeX path")
+            check_unique(section["url"], seen_urls, "PDF URL")
+
+
+def require_slug_value(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not SLUG_RE.fullmatch(value):
+        fail(f"{field} must be a lowercase hyphenated slug.")
+    return value
+
+
+def require_title_value(value: Any, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(character in value for character in "\t\r\n")
+    ):
+        fail(f"{field} must be a nonempty one-line string.")
+    return value
+
+
+def require_status_value(value: Any, field: str) -> str:
+    if value not in STATUSES:
+        fail(f"{field} must be published, draft, or planned.")
+    return value
+
+
+def check_unique(value: str, seen: set[str], description: str) -> None:
+    if value in seen:
+        fail(f"Duplicate {description}: {value}")
+    seen.add(value)
+
+
+def find_chapter(data: dict[str, Any], chapter_id: str) -> dict[str, Any]:
+    for chapter in data["book"]["chapters"]:
+        if chapter["id"] == chapter_id:
+            return chapter
+    fail(f"Unknown chapter: {chapter_id}")
+
+
+def find_chapter_index(data: dict[str, Any], chapter_id: str) -> int:
+    for index, chapter in enumerate(data["book"]["chapters"]):
+        if chapter["id"] == chapter_id:
+            return index
+    fail(f"Unknown chapter: {chapter_id}")
+
+
+def find_section(chapter: dict[str, Any], section_id: str) -> dict[str, Any]:
+    for section in chapter["sections"]:
+        if section["id"] == section_id:
+            return section
+    fail(f"Unknown section: {chapter['id']}/{section_id}")
+
+
+def find_section_index(chapter: dict[str, Any], section_id: str) -> int:
+    for index, section in enumerate(chapter["sections"]):
+        if section["id"] == section_id:
+            return index
+    fail(f"Unknown section: {chapter['id']}/{section_id}")
+
+
+def replace_managed_block(content: str, name: str, body: list[str]) -> str:
+    begin_text = f"% manage-notes:begin {name}"
+    end_text = f"% manage-notes:end {name}"
+    lines = content.splitlines()
+    begin = [index for index, line in enumerate(lines) if line.strip() == begin_text]
+    end = [index for index, line in enumerate(lines) if line.strip() == end_text]
+    if len(begin) != 1 or len(end) != 1 or begin[0] >= end[0]:
+        fail(f"Expected exactly one valid managed {name} block.")
+    updated = lines[: begin[0] + 1] + body + lines[end[0] :]
+    return "\n".join(updated) + ("\n" if content.endswith("\n") else "")
+
+
+def set_first_line(content: str, expected: str) -> str:
+    lines = content.splitlines()
+    if not lines:
+        return expected + "\n"
+    if lines[0].startswith("% !TeX "):
+        lines[0] = expected
+    else:
+        lines.insert(0, expected)
+    return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+
+
+def set_title(content: str, title: str) -> str:
+    escaped = tex_escape(title)
+    if len(TITLE_RE.findall(content)) != 1:
+        fail("Expected exactly one one-line \\title{...} command.")
+    return TITLE_RE.sub(lambda _: rf"\title{{{escaped}}}", content, count=1)
+
+
+def render_book(data: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for chapter_index, chapter in enumerate(data["book"]["chapters"]):
+        title = tex_escape(chapter["title"])
+        status = chapter["status"]
+        if status == "published":
+            lines.append(rf"    \chapter{{{title}}}")
+            for section in chapter["sections"]:
+                section_title = tex_escape(section["title"])
+                section_status = section["status"]
+                body_path = (
+                    f"chapters/{chapter['id']}/{section['id']}/text.tex"
+                )
+                if section_status == "published":
+                    lines.append(rf"        \section{{{section_title}}}")
+                    lines.append(rf"        \input{{{body_path}}}")
+                else:
+                    lines.append(
+                        rf"        % \section{{{section_title}}} % {section_status}"
+                    )
+                    lines.append(
+                        rf"        % \input{{{body_path}}} % {section_status}"
+                    )
+        else:
+            lines.append(rf"    % \chapter{{{title}}} % {status}")
+        if chapter_index != len(data["book"]["chapters"]) - 1:
+            lines.append("")
+    return lines
+
+
+def render_chapter(chapter: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for section in chapter["sections"]:
+        title = tex_escape(section["title"])
+        status = section["status"]
+        if status == "published":
+            lines.append(rf"    \section{{{title}}}")
+            lines.append(rf"    \input{{{section['id']}/text.tex}}")
+        else:
+            lines.append(rf"    % \section{{{title}}} % {status}")
+            lines.append(rf"    % \input{{{section['id']}/text.tex}} % {status}")
+    return lines
+
+
+def render_section(section: dict[str, Any]) -> list[str]:
+    return [rf"    \section{{{tex_escape(section['title'])}}}"]
+
+
+def prepared_updates(data: dict[str, Any]) -> dict[Path, str]:
+    updates: dict[Path, str] = {}
+    book = data["book"]
+    book_path = ROOT / book["tex"]
+    if not book_path.is_file():
+        fail(f"Book TeX file is missing: {book['tex']}")
+    content = read_text(book_path)
+    try:
+        content = replace_managed_block(content, "chapters", render_book(data))
+        content = set_first_line(content, ENGINE_HEAD)
+        content = set_title(content, book["title"])
+    except ManageNotesError as error:
+        fail(f"{book['tex']}: {error}")
+    updates[book_path] = content
+
+    for chapter in book["chapters"]:
+        chapter_path = ROOT / chapter["tex"]
+        if chapter_path.is_file():
+            content = read_text(chapter_path)
+            try:
+                content = replace_managed_block(
+                    content, "sections", render_chapter(chapter)
+                )
+                content = set_first_line(content, ENGINE_HEAD)
+                content = set_title(content, chapter["title"])
+            except ManageNotesError as error:
+                fail(f"{chapter['tex']}: {error}")
+            updates[chapter_path] = content
+            chapter_appendix = chapter_path.parent / "appendix.tex"
+            update_existing_root_head(
+                updates,
+                chapter_appendix,
+                f"% !TeX root = {chapter['id']}.tex",
+            )
+
+        for section in chapter["sections"]:
+            section_path = ROOT / section["tex"]
+            if section_path.is_file():
+                content = read_text(section_path)
+                try:
+                    content = replace_managed_block(
+                        content, "section", render_section(section)
+                    )
+                    content = set_first_line(content, ENGINE_HEAD)
+                    content = set_title(content, section["title"])
+                except ManageNotesError as error:
+                    fail(f"{section['tex']}: {error}")
+                updates[section_path] = content
+
+            body_path = safe_chapter_path(chapter["id"], section["id"], "text.tex")
+            if body_path.is_file():
+                body = set_first_line(
+                    read_text(body_path), f"% !TeX root = {section['id']}.tex"
+                )
+                updates[body_path] = body
+            section_appendix = body_path.parent / "appendix.tex"
+            update_existing_root_head(
+                updates,
+                section_appendix,
+                f"% !TeX root = {section['id']}.tex",
+            )
+    return updates
+
+
+def update_existing_root_head(
+    updates: dict[Path, str], path: Path, expected: str
+) -> None:
+    """Update an opt-in root head without adding heads to existing appendices."""
+    if not path.is_file():
+        return
+    content = read_text(path)
+    if content.startswith("% !TeX root = "):
+        updates[path] = set_first_line(content, expected)
+
+
+def changed_updates(updates: dict[Path, str]) -> dict[Path, str]:
+    return {
+        path: content
+        for path, content in updates.items()
+        if not path.exists() or read_text(path) != content
+    }
+
+
+def save_and_sync(
+    data: dict[str, Any],
+    *,
+    dry_run: bool,
+    description: str,
+) -> None:
+    normalize(data)
+    validate_manifest(data)
+    updates = prepared_updates(data)
+    changes = changed_updates(updates)
+    manifest_changed = manifest_text(data) != read_text(MANIFEST)
+    if dry_run:
+        print(f"Would {description}.")
+        if manifest_changed:
+            print(f"Would update {MANIFEST_NAME}.")
+        for path in changes:
+            print(f"Would synchronize {relative(path)}.")
+        return
+
+    atomic_write(MANIFEST, manifest_text(data))
+    for path, content in changes.items():
+        atomic_write(path, content)
+    print(f"{description.capitalize()}.")
+
+
+def synchronize(data: dict[str, Any], dry_run: bool) -> None:
+    normalize(data)
+    validate_manifest(data)
+    updates = changed_updates(prepared_updates(data))
+    normalized_manifest = manifest_text(data)
+    manifest_changed = normalized_manifest != read_text(MANIFEST)
+    if dry_run:
+        if not manifest_changed and not updates:
+            print("No synchronization changes are needed.")
+            return
+        if manifest_changed:
+            print(f"Would normalize {MANIFEST_NAME}.")
+        for path in updates:
+            print(f"Would synchronize {relative(path)}.")
+        return
+    if manifest_changed:
+        atomic_write(MANIFEST, normalized_manifest)
+    for path, content in updates.items():
+        atomic_write(path, content)
+    if manifest_changed or updates:
+        print(f"Synchronized {MANIFEST_NAME} and managed TeX files.")
+    else:
+        print("No synchronization changes were needed.")
+
+
+def chapter_template(chapter_id: str, title: str) -> str:
+    escaped = tex_escape(title)
+    return rf"""% !TeX program = xelatex
+% !TeX encoding = UTF-8
+% !BIB program = biber
+\documentclass[sectionlevel=chapter]{{noteformyself}}
+\usepackage{{draftwatermark}}
+
+\input{{../../accessories/notation.tex}}
+\addbibresource{{../../accessories/ref.bib}}
+\newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
+
+\title{{{escaped}}}
+\author{{Tianle Yang}}
+\date{{\today}}
+\authorpage{{\href{{https://www.tianleyang.com}}{{My Homepage}}}}
+
+\setCJKfamilyfont{{lxgwwenkai}}{{LXGW WenKai}}
+\coversentence{{\CJKfamily{{lxgwwenkai}}阿巴阿巴!}}
+\coverimage{{}}
+\covertitlefont{{TeX Gyre Termes}}
+
+\begin{{document}}
+
+    \maketitle
+
+    \tableofcontents
+
+    % manage-notes:begin sections
+    % manage-notes:end sections
+
+    \printbibliography[heading=bibintoc, title={{References}}]
+
+\end{{document}}
+"""
+
+
+def section_template(section_id: str, title: str) -> str:
+    escaped = tex_escape(title)
+    return rf"""% !TeX program = xelatex
+% !TeX encoding = UTF-8
+% !BIB program = biber
+\documentclass{{noteformyself}}
+% \usepackage{{draftwatermark}}
+
+\newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
+\input{{../../../accessories/notation.tex}}
+\addbibresource{{../../../accessories/ref.bib}}
+
+\title{{{escaped}}}
+\author{{Tianle Yang}}
+\date{{\today}}
+\authorpage{{\href{{https://www.tianleyang.com}}{{My Homepage}}}}
+
+\begin{{document}}
+
+    \maketitle
+
+    % manage-notes:begin section
+    \section{{{escaped}}}
+    % manage-notes:end section
+
+    \input{{text.tex}}
+
+    \input{{appendix.tex}}
+
+    % \printbibliography[heading=bibintoc, title={{References}}]
+
+\end{{document}}
+"""
+
+
+def create_file(path: Path, content: str, dry_run: bool) -> None:
+    if path.exists():
+        fail(f"Refusing to overwrite an existing path: {relative(path)}")
+    if dry_run:
+        return
+    atomic_write(path, content)
+
+
+def ensure_chapter_files(
+    chapter: dict[str, Any], dry_run: bool, *, new_only: bool = False
+) -> None:
+    directory = safe_chapter_path(chapter["id"])
+    wrapper = directory / f"{chapter['id']}.tex"
+    appendix = directory / "appendix.tex"
+    if new_only:
+        create_file(wrapper, chapter_template(chapter["id"], chapter["title"]), dry_run)
+        create_file(
+            appendix,
+            f"% !TeX root = {chapter['id']}.tex\n",
+            dry_run,
+        )
+        return
+    if not wrapper.exists():
+        create_file(wrapper, chapter_template(chapter["id"], chapter["title"]), dry_run)
+    if not appendix.exists():
+        create_file(
+            appendix,
+            f"% !TeX root = {chapter['id']}.tex\n",
+            dry_run,
+        )
+
+
+def ensure_section_files(
+    chapter: dict[str, Any],
+    section: dict[str, Any],
+    dry_run: bool,
+    *,
+    new_only: bool = False,
+) -> None:
+    directory = safe_chapter_path(chapter["id"], section["id"])
+    wrapper = directory / f"{section['id']}.tex"
+    body = directory / "text.tex"
+    appendix = directory / "appendix.tex"
+    files = (
+        (wrapper, section_template(section["id"], section["title"])),
+        (body, f"% !TeX root = {section['id']}.tex\n"),
+        (appendix, f"% !TeX root = {section['id']}.tex\n"),
+    )
+    for path, content in files:
+        if new_only or not path.exists():
+            create_file(path, content, dry_run)
+
+
+def create_chapter(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter_id = require_slug(args.slug)
+    title = require_title(args.title)
+    status = require_status(args.status)
+    chapters = data["book"]["chapters"]
+    if any(chapter["id"] == chapter_id for chapter in chapters):
+        fail(f"Chapter already exists: {chapter_id}")
+    order = require_order(
+        args.order if args.order is not None else len(chapters) + 1,
+        len(chapters) + 1,
+    )
+    directory = safe_chapter_path(chapter_id)
+    if directory.exists():
+        fail(f"Chapter directory already exists: {relative(directory)}")
+    chapter = {
+        "id": chapter_id,
+        "title": title,
+        "order": order,
+        "tex": chapter_tex(chapter_id),
+        "url": chapter_url(chapter_id),
+        "status": status,
+        "sections": [],
+    }
+    chapters.insert(order - 1, chapter)
+    if status != "planned":
+        ensure_chapter_files(chapter, args.dry_run, new_only=True)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"create chapter {chapter_id}",
+    )
+
+
+def create_section(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.chapter)
+    section_id = require_slug(args.slug)
+    title = require_title(args.title)
+    status = require_status(args.status)
+    if any(section["id"] == section_id for section in chapter["sections"]):
+        fail(f"Section already exists: {chapter['id']}/{section_id}")
+    sections = chapter["sections"]
+    order = require_order(
+        args.order if args.order is not None else len(sections) + 1,
+        len(sections) + 1,
+    )
+    directory = safe_chapter_path(chapter["id"], section_id)
+    if directory.exists():
+        fail(f"Section directory already exists: {relative(directory)}")
+    section = {
+        "id": section_id,
+        "title": title,
+        "order": order,
+        "tex": section_tex(chapter["id"], section_id),
+        "url": section_url(chapter["id"], section_id),
+        "status": status,
+    }
+    sections.insert(order - 1, section)
+    if status != "planned":
+        ensure_section_files(chapter, section, args.dry_run, new_only=True)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"create section {chapter['id']}/{section_id}",
+    )
+
+
+def git_target_dirty(path: Path) -> bool:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(ROOT),
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            relative(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def confirm_delete(kind: str, identity: str, args: argparse.Namespace) -> None:
+    if args.dry_run or args.yes:
+        return
+    expected = f"DELETE {kind}/{identity}"
+    response = input(f"Type '{expected}' to confirm: ")
+    if response != expected:
+        fail("Deletion cancelled.")
+
+
+def delete_chapter(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    index = find_chapter_index(data, args.slug)
+    chapter = data["book"]["chapters"][index]
+    if chapter["sections"] and not args.recursive:
+        fail("The chapter contains sections; pass --recursive to delete it.")
+    directory = safe_chapter_path(chapter["id"])
+    if directory.exists() and git_target_dirty(directory):
+        fail(
+            f"Refusing to delete modified or untracked files in {relative(directory)}."
+        )
+    confirm_delete("chapter", chapter["id"], args)
+    del data["book"]["chapters"][index]
+    if not args.dry_run and directory.exists():
+        shutil.rmtree(directory)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"delete chapter {chapter['id']}",
+    )
+
+
+def delete_section(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.chapter)
+    index = find_section_index(chapter, args.slug)
+    section = chapter["sections"][index]
+    directory = safe_chapter_path(chapter["id"], section["id"])
+    if directory.exists() and git_target_dirty(directory):
+        fail(
+            f"Refusing to delete modified or untracked files in {relative(directory)}."
+        )
+    confirm_delete("section", f"{chapter['id']}/{section['id']}", args)
+    del chapter["sections"][index]
+    if not args.dry_run and directory.exists():
+        shutil.rmtree(directory)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"delete section {chapter['id']}/{section['id']}",
+    )
+
+
+def rename_chapter(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    old_id = args.old
+    new_id = require_slug(args.new)
+    chapter = find_chapter(data, old_id)
+    if any(item["id"] == new_id for item in data["book"]["chapters"]):
+        fail(f"Chapter already exists: {new_id}")
+    old_directory = safe_chapter_path(old_id)
+    new_directory = safe_chapter_path(new_id)
+    if new_directory.exists():
+        fail(f"Destination already exists: {relative(new_directory)}")
+    if not args.dry_run and old_directory.exists():
+        old_directory.rename(new_directory)
+        old_wrapper = new_directory / f"{old_id}.tex"
+        if old_wrapper.exists():
+            old_wrapper.rename(new_directory / f"{new_id}.tex")
+    chapter["id"] = new_id
+    normalize(data)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"rename chapter {old_id} to {new_id}",
+    )
+
+
+def rename_section(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.chapter)
+    old_id = args.old
+    new_id = require_slug(args.new)
+    section = find_section(chapter, old_id)
+    if any(item["id"] == new_id for item in chapter["sections"]):
+        fail(f"Section already exists: {chapter['id']}/{new_id}")
+    old_directory = safe_chapter_path(chapter["id"], old_id)
+    new_directory = safe_chapter_path(chapter["id"], new_id)
+    if new_directory.exists():
+        fail(f"Destination already exists: {relative(new_directory)}")
+    if not args.dry_run and old_directory.exists():
+        old_directory.rename(new_directory)
+        old_wrapper = new_directory / f"{old_id}.tex"
+        if old_wrapper.exists():
+            old_wrapper.rename(new_directory / f"{new_id}.tex")
+    section["id"] = new_id
+    normalize(data)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=(
+            f"rename section {chapter['id']}/{old_id} to "
+            f"{chapter['id']}/{new_id}"
+        ),
+    )
+
+
+def move_chapter(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapters = data["book"]["chapters"]
+    old_index = find_chapter_index(data, args.slug)
+    new_order = require_order(args.order, len(chapters))
+    chapter = chapters.pop(old_index)
+    chapters.insert(new_order - 1, chapter)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"move chapter {args.slug} to order {new_order}",
+    )
+
+
+def move_section(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    source = find_chapter(data, args.from_chapter)
+    destination = find_chapter(data, args.to_chapter)
+    old_index = find_section_index(source, args.slug)
+    if source is not destination and any(
+        item["id"] == args.slug for item in destination["sections"]
+    ):
+        fail(f"Section already exists: {destination['id']}/{args.slug}")
+    section = source["sections"].pop(old_index)
+    maximum = len(destination["sections"]) + 1
+    new_order = require_order(args.order, maximum)
+    old_directory = safe_chapter_path(source["id"], section["id"])
+    new_directory = safe_chapter_path(destination["id"], section["id"])
+    if source is not destination and new_directory.exists():
+        fail(f"Destination already exists: {relative(new_directory)}")
+    destination["sections"].insert(new_order - 1, section)
+    if (
+        not args.dry_run
+        and source is not destination
+        and old_directory.exists()
+    ):
+        new_directory.parent.mkdir(parents=True, exist_ok=True)
+        old_directory.rename(new_directory)
+    normalize(data)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=(
+            f"move section {args.from_chapter}/{args.slug} to "
+            f"{args.to_chapter} at order {new_order}"
+        ),
+    )
+
+
+def retitle_chapter(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.slug)
+    chapter["title"] = require_title(args.title)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"retitle chapter {chapter['id']}",
+    )
+
+
+def retitle_section(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.chapter)
+    section = find_section(chapter, args.slug)
+    section["title"] = require_title(args.title)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"retitle section {chapter['id']}/{section['id']}",
+    )
+
+
+def set_chapter_status(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.slug)
+    status = require_status(args.status)
+    chapter["status"] = status
+    if status != "planned":
+        ensure_chapter_files(chapter, args.dry_run)
+        for section in chapter["sections"]:
+            if section["status"] != "planned":
+                ensure_section_files(chapter, section, args.dry_run)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=f"set chapter {chapter['id']} status to {status}",
+    )
+
+
+def set_section_status(args: argparse.Namespace) -> None:
+    data = load_manifest()
+    chapter = find_chapter(data, args.chapter)
+    section = find_section(chapter, args.slug)
+    status = require_status(args.status)
+    section["status"] = status
+    if status != "planned":
+        ensure_section_files(chapter, section, args.dry_run)
+    save_and_sync(
+        data,
+        dry_run=args.dry_run,
+        description=(
+            f"set section {chapter['id']}/{section['id']} status to {status}"
+        ),
+    )
+
+
+def list_notes(data: dict[str, Any]) -> None:
+    book = data["book"]
+    print(f"Book: {book['title']} [{book['status']}]")
+    print(f"  TeX: {book['tex']}")
+    print(f"  PDF: {book['url']}")
+    for chapter in book["chapters"]:
+        print(
+            f"{chapter['order']}. {chapter['title']} "
+            f"({chapter['id']}) [{chapter['status']}]"
+        )
+        print(f"   TeX: {chapter['tex']}")
+        print(f"   PDF: {chapter['url']}")
+        for section in chapter["sections"]:
+            print(
+                f"   {chapter['order']}.{section['order']} "
+                f"{section['title']} ({section['id']}) "
+                f"[{section['status']}]"
+            )
+            print(f"      TeX: {section['tex']}")
+            print(f"      PDF: {section['url']}")
+
+
+def validate_source_tree(data: dict[str, Any]) -> None:
+    book = data["book"]
+    listed_wrappers = {book["tex"]}
+    required_wrappers = {book["tex"]}
+
+    for chapter in book["chapters"]:
+        listed_wrappers.add(chapter["tex"])
+        if chapter["status"] != "planned":
+            required_wrappers.add(chapter["tex"])
+        for section in chapter["sections"]:
+            listed_wrappers.add(section["tex"])
+            if section["status"] != "planned":
+                required_wrappers.add(section["tex"])
+
+            body = safe_chapter_path(chapter["id"], section["id"], "text.tex")
+            if section["status"] != "planned" and not body.is_file():
+                fail(f"Required section body is missing: {relative(body)}")
+            if body.is_file():
+                content = read_text(body)
+                expected_head = f"% !TeX root = {section['id']}.tex"
+                if not content.startswith(expected_head + "\n"):
+                    fail(f"Incorrect or missing TeX root head: {relative(body)}")
+                if SECTION_IN_BODY_RE.search(content):
+                    fail(
+                        f"Section bodies must not contain a top-level "
+                        f"\\section command: {relative(body)}"
+                    )
+
+    for wrapper in required_wrappers:
+        path = ROOT / wrapper
+        if not path.is_file():
+            fail(f"Required compilable TeX file is missing: {wrapper}")
+
+    compilable: set[str] = set()
+    for path in ROOT.rglob("*.tex"):
+        relative_path = path.relative_to(ROOT)
+        if any(part in {".git", "accessories"} for part in relative_path.parts):
+            continue
+        content = read_text(path)
+        if DOCUMENTCLASS_RE.search(content):
+            name = relative_path.as_posix()
+            compilable.add(name)
+            if not content.startswith(ENGINE_HEAD + "\n"):
+                fail(f"Incorrect or missing compile-engine head: {name}")
+    unexpected = sorted(compilable - listed_wrappers)
+    if unexpected:
+        fail(
+            "Compilable TeX files missing from the manifest: "
+            + ", ".join(unexpected)
+        )
+
+    updates = changed_updates(prepared_updates(data))
+    if updates:
+        fail(
+            "Managed TeX files are not synchronized: "
+            + ", ".join(relative(path) for path in updates)
+            + ". Run manage-notes sync."
+        )
+
+
+def validate_command(data: dict[str, Any]) -> None:
+    validate_manifest(data)
+    validate_source_tree(data)
+    print(f"{MANIFEST_NAME} and all managed TeX files are valid and synchronized.")
+
+
+def add_global_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show changes without writing them",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip exact deletion confirmation",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="manage-notes",
+        description=(
+            "Manage chapters, sections, notes.json, and generated TeX inputs."
+        ),
+    )
+    add_global_arguments(parser)
+    subparsers = parser.add_subparsers(dest="command")
+
+    subparsers.add_parser("list", help="show the ordered note tree")
+    subparsers.add_parser("validate", help="validate the manifest and source tree")
+    subparsers.add_parser("sync", help="regenerate managed TeX regions")
+
+    create = subparsers.add_parser("create", help="create a chapter or section")
+    create_types = create.add_subparsers(dest="kind", required=True)
+    create_ch = create_types.add_parser("chapter")
+    create_ch.add_argument("slug")
+    create_ch.add_argument("title")
+    create_ch.add_argument("status", nargs="?", default="draft", choices=STATUSES)
+    create_ch.add_argument("order", nargs="?", type=int)
+    create_sec = create_types.add_parser("section")
+    create_sec.add_argument("chapter")
+    create_sec.add_argument("slug")
+    create_sec.add_argument("title")
+    create_sec.add_argument("status", nargs="?", default="draft", choices=STATUSES)
+    create_sec.add_argument("order", nargs="?", type=int)
+
+    delete = subparsers.add_parser("delete", help="delete a chapter or section")
+    delete_types = delete.add_subparsers(dest="kind", required=True)
+    delete_ch = delete_types.add_parser("chapter")
+    delete_ch.add_argument("slug")
+    delete_ch.add_argument("--recursive", action="store_true")
+    delete_sec = delete_types.add_parser("section")
+    delete_sec.add_argument("chapter")
+    delete_sec.add_argument("slug")
+
+    rename = subparsers.add_parser("rename", help="rename an ID and its paths")
+    rename_types = rename.add_subparsers(dest="kind", required=True)
+    rename_ch = rename_types.add_parser("chapter")
+    rename_ch.add_argument("old")
+    rename_ch.add_argument("new")
+    rename_sec = rename_types.add_parser("section")
+    rename_sec.add_argument("chapter")
+    rename_sec.add_argument("old")
+    rename_sec.add_argument("new")
+
+    move = subparsers.add_parser("move", help="reorder or reparent an item")
+    move_types = move.add_subparsers(dest="kind", required=True)
+    move_ch = move_types.add_parser("chapter")
+    move_ch.add_argument("slug")
+    move_ch.add_argument("order", type=int)
+    move_sec = move_types.add_parser("section")
+    move_sec.add_argument("from_chapter")
+    move_sec.add_argument("slug")
+    move_sec.add_argument("to_chapter")
+    move_sec.add_argument("order", type=int)
+
+    retitle = subparsers.add_parser("retitle", help="change a human-readable title")
+    retitle_types = retitle.add_subparsers(dest="kind", required=True)
+    retitle_ch = retitle_types.add_parser("chapter")
+    retitle_ch.add_argument("slug")
+    retitle_ch.add_argument("title")
+    retitle_sec = retitle_types.add_parser("section")
+    retitle_sec.add_argument("chapter")
+    retitle_sec.add_argument("slug")
+    retitle_sec.add_argument("title")
+
+    status = subparsers.add_parser("set-status", help="change publication status")
+    status_types = status.add_subparsers(dest="kind", required=True)
+    status_ch = status_types.add_parser("chapter")
+    status_ch.add_argument("slug")
+    status_ch.add_argument("status", choices=STATUSES)
+    status_sec = status_types.add_parser("section")
+    status_sec.add_argument("chapter")
+    status_sec.add_argument("slug")
+    status_sec.add_argument("status", choices=STATUSES)
+    return parser
+
+
+def interactive_args(
+    parser: argparse.ArgumentParser, global_args: argparse.Namespace
+) -> argparse.Namespace | None:
+    choices = {
+        "1": ("list",),
+        "2": ("create", "chapter"),
+        "3": ("create", "section"),
+        "4": ("delete", "chapter"),
+        "5": ("delete", "section"),
+        "6": ("rename", "chapter"),
+        "7": ("rename", "section"),
+        "8": ("move", "chapter"),
+        "9": ("move", "section"),
+        "10": ("retitle", "chapter"),
+        "11": ("retitle", "section"),
+        "12": ("set-status", "chapter"),
+        "13": ("set-status", "section"),
+        "14": ("sync",),
+        "15": ("validate",),
+    }
+    print(
+        """Manage notes
+  1) List
+  2) Create chapter
+  3) Create section
+  4) Delete chapter
+  5) Delete section
+  6) Rename chapter
+  7) Rename section
+  8) Move chapter
+  9) Move section
+ 10) Retitle chapter
+ 11) Retitle section
+ 12) Set chapter status
+ 13) Set section status
+ 14) Synchronize
+ 15) Validate
+  0) Exit"""
+    )
+    choice = input("Choice: ").strip()
+    if choice == "0":
+        return None
+    prefix = choices.get(choice)
+    if prefix is None:
+        fail("Unknown menu choice.")
+
+    prompts: dict[tuple[str, ...], list[tuple[str, str]]] = {
+        ("create", "chapter"): [
+            ("Chapter slug", ""),
+            ("Human title", ""),
+            ("Status [draft]", "draft"),
+            ("Order [last]", ""),
+        ],
+        ("create", "section"): [
+            ("Chapter slug", ""),
+            ("Section slug", ""),
+            ("Human title", ""),
+            ("Status [draft]", "draft"),
+            ("Order [last]", ""),
+        ],
+        ("delete", "chapter"): [
+            ("Chapter slug", ""),
+            ("Pass --recursive? [y/N]", "n"),
+        ],
+        ("delete", "section"): [
+            ("Chapter slug", ""),
+            ("Section slug", ""),
+        ],
+        ("rename", "chapter"): [
+            ("Old chapter slug", ""),
+            ("New chapter slug", ""),
+        ],
+        ("rename", "section"): [
+            ("Chapter slug", ""),
+            ("Old section slug", ""),
+            ("New section slug", ""),
+        ],
+        ("move", "chapter"): [
+            ("Chapter slug", ""),
+            ("New order", ""),
+        ],
+        ("move", "section"): [
+            ("Source chapter slug", ""),
+            ("Section slug", ""),
+            ("Destination chapter slug", ""),
+            ("New order", ""),
+        ],
+        ("retitle", "chapter"): [
+            ("Chapter slug", ""),
+            ("New title", ""),
+        ],
+        ("retitle", "section"): [
+            ("Chapter slug", ""),
+            ("Section slug", ""),
+            ("New title", ""),
+        ],
+        ("set-status", "chapter"): [
+            ("Chapter slug", ""),
+            ("Status", ""),
+        ],
+        ("set-status", "section"): [
+            ("Chapter slug", ""),
+            ("Section slug", ""),
+            ("Status", ""),
+        ],
+    }
+    values: list[str] = []
+    for label, default in prompts.get(prefix, []):
+        value = input(f"{label}: ").strip()
+        values.append(value or default)
+
+    arguments: list[str] = []
+    if global_args.dry_run:
+        arguments.append("--dry-run")
+    if global_args.yes:
+        arguments.append("--yes")
+    arguments.extend(prefix)
+    if prefix == ("delete", "chapter"):
+        recursive = values.pop().lower() in {"y", "yes"}
+        arguments.extend(values)
+        if recursive:
+            arguments.append("--recursive")
+    else:
+        while values and values[-1] == "":
+            values.pop()
+        arguments.extend(values)
+    return parser.parse_args(arguments)
+
+
+def dispatch(args: argparse.Namespace) -> None:
+    if args.command == "list":
+        list_notes(load_manifest())
+    elif args.command == "validate":
+        validate_command(load_manifest())
+    elif args.command == "sync":
+        synchronize(load_manifest(), args.dry_run)
+    elif args.command == "create" and args.kind == "chapter":
+        create_chapter(args)
+    elif args.command == "create" and args.kind == "section":
+        create_section(args)
+    elif args.command == "delete" and args.kind == "chapter":
+        delete_chapter(args)
+    elif args.command == "delete" and args.kind == "section":
+        delete_section(args)
+    elif args.command == "rename" and args.kind == "chapter":
+        rename_chapter(args)
+    elif args.command == "rename" and args.kind == "section":
+        rename_section(args)
+    elif args.command == "move" and args.kind == "chapter":
+        move_chapter(args)
+    elif args.command == "move" and args.kind == "section":
+        move_section(args)
+    elif args.command == "retitle" and args.kind == "chapter":
+        retitle_chapter(args)
+    elif args.command == "retitle" and args.kind == "section":
+        retitle_section(args)
+    elif args.command == "set-status" and args.kind == "chapter":
+        set_chapter_status(args)
+    elif args.command == "set-status" and args.kind == "section":
+        set_section_status(args)
+    else:
+        fail("No command was selected.")
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.command is None:
+        args = interactive_args(parser, args)
+        if args is None:
+            return 0
+    dispatch(args)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ManageNotesError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        raise SystemExit(1)
