@@ -666,7 +666,7 @@ def chapter_template(
 % manage-notes:end watermark
 
 \input{{../../accessories/notation.tex}}
-\addbibresource{{../../accessories/ref.bib}}
+\addbibresource{{../../refs.bib}}
 \newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
 
 \title{{{escaped}}}
@@ -709,7 +709,7 @@ def section_template(
 
 \newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
 \input{{../../../accessories/notation.tex}}
-\addbibresource{{../../../accessories/ref.bib}}
+\addbibresource{{../../../refs.bib}}
 
 \title{{{escaped}}}
 \author{{Tianle Yang}}
