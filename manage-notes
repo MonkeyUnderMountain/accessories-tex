@@ -449,8 +449,13 @@ def set_first_line(content: str, expected: str) -> str:
     return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
 
 
-def set_title(content: str, title: str) -> str:
-    escaped = tex_escape(title)
+def latex_title(title: str, status: StatusRecord) -> str:
+    displayed = f"{title} (draft)" if status["finished"] == 0 else title
+    return tex_escape(displayed)
+
+
+def set_title(content: str, title: str, status: StatusRecord) -> str:
+    escaped = latex_title(title, status)
     if len(TITLE_RE.findall(content)) != 1:
         fail("Expected exactly one one-line \\title{...} command.")
     return TITLE_RE.sub(lambda _: rf"\title{{{escaped}}}", content, count=1)
@@ -491,10 +496,10 @@ def set_watermark(content: str, status: StatusRecord) -> str:
 def render_book(data: ManifestRecord) -> list[str]:
     lines: list[str] = []
     for chapter_index, chapter in enumerate(data["book"]["chapters"]):
-        title = tex_escape(chapter["title"])
+        title = latex_title(chapter["title"], chapter["status"])
         lines.append(rf"    \chapter{{{title}}}")
         for section in chapter["sections"]:
-            section_title = tex_escape(section["title"])
+            section_title = latex_title(section["title"], section["status"])
             body_path = f"chapters/{chapter['id']}/{section['id']}/text.tex"
             lines.append(rf"        \section{{{section_title}}}")
             lines.append(rf"        \input{{{body_path}}}")
@@ -506,14 +511,16 @@ def render_book(data: ManifestRecord) -> list[str]:
 def render_chapter(chapter: ChapterRecord) -> list[str]:
     lines: list[str] = []
     for section in chapter["sections"]:
-        title = tex_escape(section["title"])
+        title = latex_title(section["title"], section["status"])
         lines.append(rf"    \section{{{title}}}")
         lines.append(rf"    \input{{{section['id']}/text.tex}}")
     return lines
 
 
 def render_section(section: SectionRecord) -> list[str]:
-    return [rf"    \section{{{tex_escape(section['title'])}}}"]
+    return [
+        rf"    \section{{{latex_title(section['title'], section['status'])}}}"
+    ]
 
 
 def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
@@ -526,7 +533,7 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
     try:
         content = replace_managed_block(content, "chapters", render_book(data))
         content = set_first_line(content, ENGINE_HEAD)
-        content = set_title(content, book["title"])
+        content = set_title(content, book["title"], book["status"])
         content = set_watermark(content, book["status"])
     except ManageNotesError as error:
         fail(f"{book['tex']}: {error}")
@@ -541,7 +548,9 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
                     content, "sections", render_chapter(chapter)
                 )
                 content = set_first_line(content, ENGINE_HEAD)
-                content = set_title(content, chapter["title"])
+                content = set_title(
+                    content, chapter["title"], chapter["status"]
+                )
                 content = set_watermark(content, chapter["status"])
             except ManageNotesError as error:
                 fail(f"{chapter['tex']}: {error}")
@@ -562,7 +571,9 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
                         content, "section", render_section(section)
                     )
                     content = set_first_line(content, ENGINE_HEAD)
-                    content = set_title(content, section["title"])
+                    content = set_title(
+                        content, section["title"], section["status"]
+                    )
                     content = set_watermark(content, section["status"])
                 except ManageNotesError as error:
                     fail(f"{section['tex']}: {error}")
@@ -655,7 +666,7 @@ def synchronize(data: ManifestRecord, dry_run: bool) -> None:
 def chapter_template(
     chapter_id: str, title: str, status: StatusRecord
 ) -> str:
-    escaped = tex_escape(title)
+    escaped = latex_title(title, status)
     watermark = watermark_package_line(status)
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
@@ -697,7 +708,7 @@ def chapter_template(
 def section_template(
     section_id: str, title: str, status: StatusRecord
 ) -> str:
-    escaped = tex_escape(title)
+    escaped = latex_title(title, status)
     watermark = watermark_package_line(status)
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
