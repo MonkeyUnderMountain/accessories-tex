@@ -1,5 +1,10 @@
 # Generated LaTeX output
 *.pdf
+*.nfm-xref
+
+# Python caches
+__pycache__/
+*.py[cod]
 
 # PDF assets distributed with the reusable templates
 !templates-of-latex/beamer-ecnu/img/bg.pdf

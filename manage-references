@@ -1,0 +1,1035 @@
+#!/usr/bin/env python3
+"""Synchronize local and cross-repository references for LaTeX notes."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, NoReturn
+
+
+CATALOG_SCHEMA_VERSION = 1
+CATALOG_NAME = "external-labels.json"
+CACHE_DIR_NAME = ".note-references"
+IMPORT_SUFFIX = ".external-labels.tex"
+IMPORT_BLOCK_BEGIN = "% manage-references:begin imports"
+IMPORT_BLOCK_END = "% manage-references:end imports"
+REMOTE_PREFIX_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ID_PATH_RE = re.compile(
+    r"^[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*$"
+)
+SAFE_NUMBER_RE = re.compile(r"^[0-9A-Za-z.*(): -]+$")
+SAFE_COUNTER_RE = re.compile(r"^[0-9]+$")
+SAFE_CREF_TYPE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9@_-]*$")
+SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z:._-]*$")
+MAX_CATALOG_BYTES = 10 * 1024 * 1024
+REFERENCE_KIND_NAMES = {
+    "chapter": "Chapter",
+    "section": "Section",
+    "subsection": "Subsection",
+    "chap": "Chapter",
+    "sec": "Section",
+    "subsec": "Subsection",
+    "definition": "Definition",
+    "def": "Definition",
+    "proposition": "Proposition",
+    "prop": "Proposition",
+    "theorem": "Theorem",
+    "thm": "Theorem",
+    "lemma": "Lemma",
+    "lem": "Lemma",
+    "corollary": "Corollary",
+    "cor": "Corollary",
+    "conjecture": "Conjecture",
+    "conj": "Conjecture",
+    "question": "Question",
+    "ques": "Question",
+    "remark": "Remark",
+    "rmk": "Remark",
+    "rem": "Remark",
+    "claim": "Claim",
+    "example": "Example",
+    "eg": "Example",
+    "exercise": "Exercise",
+    "ex": "Exercise",
+    "construction": "Construction",
+    "constr": "Construction",
+    "cons": "Construction",
+    "notation": "Notation",
+    "not": "Notation",
+    "equation": "Equation",
+    "eq": "Equation",
+    "figure": "Figure",
+    "fig": "Figure",
+    "table": "Table",
+    "tab": "Table",
+}
+
+
+class ManageReferencesError(RuntimeError):
+    """An error that can be reported without a traceback."""
+
+
+@dataclass(frozen=True)
+class NoteDocument:
+    kind: str
+    identity: str
+    wrapper: Path
+    url: str
+    chapter_id: str | None = None
+    section_id: str | None = None
+
+    @property
+    def base(self) -> Path:
+        return self.wrapper.with_suffix("")
+
+    @property
+    def aux(self) -> Path:
+        return self.wrapper.with_suffix(".aux")
+
+    @property
+    def xref(self) -> Path:
+        return self.wrapper.with_suffix(".nfm-xref")
+
+    @property
+    def imports(self) -> Path:
+        return self.wrapper.with_name(self.wrapper.stem + IMPORT_SUFFIX)
+
+
+@dataclass(frozen=True)
+class RemoteRepository:
+    prefix: str
+    url: str
+
+
+def fail(message: str) -> NoReturn:
+    raise ManageReferencesError(message)
+
+
+def find_repo_root() -> Path:
+    configured = os.environ.get("MANAGE_REFERENCES_ROOT") or os.environ.get(
+        "MANAGE_NOTES_ROOT"
+    )
+    if configured:
+        root = Path(configured).expanduser().resolve()
+        if not root.is_dir():
+            fail(f"Repository root does not exist: {root}")
+        return root
+
+    script_dir = Path(__file__).resolve().parent
+    result = subprocess.run(
+        ["git", "-C", str(script_dir), "rev-parse", "--show-superproject-working-tree"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return Path(result.stdout.strip()).resolve()
+    if (script_dir / "notes.json").is_file():
+        return script_dir
+    if (script_dir.parent / "notes.json").is_file():
+        return script_dir.parent
+    # Let --help work from the accessories repository itself. Commands that
+    # need note data will report the more useful missing-manifest diagnostic.
+    return script_dir
+
+
+ROOT = find_repo_root()
+MANIFEST = ROOT / os.environ.get("MANAGE_NOTES_MANIFEST", "notes.json")
+CACHE_DIR = ROOT / CACHE_DIR_NAME
+
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        fail(f"File is not valid UTF-8: {relative(path)} ({error})")
+
+
+def atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = path.stat().st_mode if path.exists() else None
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        if mode is not None:
+            os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def relative(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def require_mapping(value: object, field: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        fail(f"{field} must be an object.")
+    return value
+
+
+def require_list(value: object, field: str) -> list[Any]:
+    if not isinstance(value, list):
+        fail(f"{field} must be an array.")
+    return value
+
+
+def require_string(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value:
+        fail(f"{field} must be a nonempty string.")
+    return value
+
+
+def load_manifest() -> dict[str, Any]:
+    if not MANIFEST.is_file():
+        fail(f"Manifest not found: {MANIFEST}")
+    try:
+        data = json.loads(read_text(MANIFEST))
+    except json.JSONDecodeError as error:
+        fail(f"Invalid JSON in {MANIFEST.name}: {error}")
+    root = require_mapping(data, "manifest")
+    book = require_mapping(root.get("book"), "book")
+    book_id = require_string(book.get("id"), "book.id")
+    if not SLUG_RE.fullmatch(book_id):
+        fail(f"book.id is not a lowercase slug: {book_id}")
+    require_string(book.get("title"), "book.title")
+    require_string(book.get("tex"), "book.tex")
+    require_string(book.get("url"), "book.url")
+    require_list(book.get("chapters"), "book.chapters")
+    remote_repositories(root)
+    documents(root)
+    return root
+
+
+def documents(data: dict[str, Any]) -> list[NoteDocument]:
+    book = require_mapping(data.get("book"), "book")
+    result = [
+        NoteDocument(
+            kind="book",
+            identity=require_string(book.get("id"), "book.id"),
+            wrapper=ROOT / require_string(book.get("tex"), "book.tex"),
+            url=require_string(book.get("url"), "book.url"),
+        )
+    ]
+    seen_identities = {result[0].identity}
+    seen_wrappers = {result[0].wrapper}
+    for chapter_value in require_list(book.get("chapters"), "book.chapters"):
+        chapter = require_mapping(chapter_value, "chapter")
+        chapter_id = require_string(chapter.get("id"), "chapter.id")
+        if not SLUG_RE.fullmatch(chapter_id):
+            fail(f"chapter.id is not a lowercase slug: {chapter_id}")
+        chapter_document = NoteDocument(
+            kind="chapter",
+            identity=chapter_id,
+            wrapper=ROOT / require_string(chapter.get("tex"), f"{chapter_id}.tex"),
+            url=require_string(chapter.get("url"), f"{chapter_id}.url"),
+            chapter_id=chapter_id,
+        )
+        if chapter_document.identity in seen_identities:
+            fail(f"Duplicate document identity: {chapter_document.identity}")
+        if chapter_document.wrapper in seen_wrappers:
+            fail(f"Duplicate document path: {relative(chapter_document.wrapper)}")
+        seen_identities.add(chapter_document.identity)
+        seen_wrappers.add(chapter_document.wrapper)
+        result.append(chapter_document)
+        for section_value in require_list(
+            chapter.get("sections"), f"{chapter_id}.sections"
+        ):
+            section = require_mapping(section_value, "section")
+            section_id = require_string(section.get("id"), "section.id")
+            if not SLUG_RE.fullmatch(section_id):
+                fail(f"section.id is not a lowercase slug: {section_id}")
+            identity = f"{chapter_id}/{section_id}"
+            section_document = NoteDocument(
+                kind="section",
+                identity=identity,
+                wrapper=ROOT
+                / require_string(section.get("tex"), f"{identity}.tex"),
+                url=require_string(section.get("url"), f"{identity}.url"),
+                chapter_id=chapter_id,
+                section_id=section_id,
+            )
+            if identity in seen_identities:
+                fail(f"Duplicate document identity: {identity}")
+            if section_document.wrapper in seen_wrappers:
+                fail(f"Duplicate document path: {relative(section_document.wrapper)}")
+            seen_identities.add(identity)
+            seen_wrappers.add(section_document.wrapper)
+            result.append(section_document)
+    for document in result:
+        if not document.wrapper.is_file():
+            fail(f"Document wrapper is missing: {relative(document.wrapper)}")
+    return result
+
+
+def remote_repositories(data: dict[str, Any]) -> list[RemoteRepository]:
+    raw = data.get("externalReferences", [])
+    result: list[RemoteRepository] = []
+    seen: set[str] = set()
+    for index, value in enumerate(require_list(raw, "externalReferences"), start=1):
+        record = require_mapping(value, f"externalReferences[{index}]")
+        prefix = require_string(record.get("prefix"), f"externalReferences[{index}].prefix")
+        url = require_string(record.get("url"), f"externalReferences[{index}].url")
+        if not REMOTE_PREFIX_RE.fullmatch(prefix):
+            fail(f"Invalid external reference prefix: {prefix}")
+        if prefix in seen:
+            fail(f"Duplicate external reference prefix: {prefix}")
+        require_http_url(url, f"catalog URL for {prefix}")
+        seen.add(prefix)
+        result.append(RemoteRepository(prefix=prefix, url=url))
+    return result
+
+
+def require_http_url(value: str, field: str) -> str:
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        fail(f"{field} must be an absolute HTTP(S) URL: {value}")
+    if any(character in value for character in "\\{}[]%#\t\r\n "):
+        fail(f"{field} contains syntax that is unsafe in a generated TeX input.")
+    return value
+
+
+def parse_braced(text: str, position: int) -> tuple[str, int]:
+    while position < len(text) and text[position].isspace():
+        position += 1
+    if position >= len(text) or text[position] != "{":
+        fail("Expected a braced TeX argument while reading reference output.")
+    depth = 1
+    cursor = position + 1
+    start = cursor
+    escaped = False
+    while cursor < len(text):
+        character = text[cursor]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:cursor], cursor + 1
+        cursor += 1
+    fail("Unclosed TeX group in reference output.")
+
+
+def parse_commands(text: str, command: str, arguments: int = 2) -> list[list[str]]:
+    needle = f"\\{command}"
+    result: list[list[str]] = []
+    cursor = 0
+    while True:
+        position = text.find(needle, cursor)
+        if position < 0:
+            return result
+        after_name = position + len(needle)
+        if after_name < len(text) and text[after_name].isalpha():
+            cursor = after_name
+            continue
+        values: list[str] = []
+        next_position = after_name
+        for _ in range(arguments):
+            value, next_position = parse_braced(text, next_position)
+            values.append(value)
+        result.append(values)
+        cursor = next_position
+
+
+def parse_group_list(value: str) -> list[str]:
+    groups: list[str] = []
+    cursor = 0
+    while cursor < len(value):
+        while cursor < len(value) and value[cursor].isspace():
+            cursor += 1
+        if cursor == len(value):
+            break
+        group, cursor = parse_braced(value, cursor)
+        groups.append(group)
+    return groups
+
+
+def parse_cref_field(value: str, field: str) -> tuple[str, str, str, str]:
+    parts: list[str] = []
+    cursor = 0
+    for _ in range(3):
+        if cursor >= len(value) or value[cursor] != "[":
+            fail(f"Malformed cleveref {field} metadata: {value}")
+        end = value.find("]", cursor + 1)
+        if end < 0:
+            fail(f"Malformed cleveref {field} metadata: {value}")
+        parts.append(value[cursor + 1 : end])
+        cursor = end + 1
+    return parts[0], parts[1], parts[2], value[cursor:]
+
+
+def require_plain(value: str, field: str) -> str:
+    if any(character in value for character in "\\{}%#$\r\n"):
+        fail(f"{field} contains unsupported TeX syntax: {value}")
+    return value
+
+
+def require_label(value: str) -> str:
+    if not value or any(character in value for character in "\\{}%#\r\n"):
+        fail(f"Invalid LaTeX label in reference output: {value}")
+    return value
+
+
+def tex_escape(value: str) -> str:
+    replacements = {
+        "&": r"\&",
+        "%": r"\%",
+        "#": r"\#",
+        "_": r"\_",
+        "$": r"\$",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in value)
+
+
+def reference_records(document: NoteDocument, book_title: str) -> list[dict[str, Any]]:
+    if not document.aux.is_file():
+        fail(f"Reference output is missing: {relative(document.aux)}")
+    aux_commands = parse_commands(read_text(document.aux), "newlabel")
+    labels: dict[str, str] = {}
+    for label, value in aux_commands:
+        if label in labels:
+            fail(f"Duplicate label in {relative(document.aux)}: {label}")
+        labels[label] = value
+    external: dict[str, str] = {}
+    if document.xref.is_file():
+        for label, value in parse_commands(
+            read_text(document.xref), "NoteExternalReference"
+        ):
+            if label in external:
+                fail(f"Duplicate external label in {relative(document.xref)}: {label}")
+            external[label] = value
+
+    records: list[dict[str, Any]] = []
+    for raw_label in sorted(labels):
+        if raw_label.endswith("@cref"):
+            continue
+        cref_value = labels.get(f"{raw_label}@cref")
+        if cref_value is None:
+            continue
+        label = require_label(raw_label)
+        base_groups = parse_group_list(labels[raw_label])
+        if len(base_groups) < 4:
+            fail(f"Malformed label record for {label} in {relative(document.aux)}")
+        number = require_plain(base_groups[0], f"number for {label}")
+        page = require_plain(base_groups[1], f"page for {label}")
+        anchor = require_plain(base_groups[3], f"anchor for {label}")
+        if not SAFE_NUMBER_RE.fullmatch(number):
+            fail(f"Unsupported reference number for {label}: {number}")
+        if not SAFE_NUMBER_RE.fullmatch(page):
+            fail(f"Unsupported reference page for {label}: {page}")
+        if not SAFE_ANCHOR_RE.fullmatch(anchor):
+            fail(f"Unsupported PDF anchor for {label}: {anchor}")
+
+        source_cref = external.get(label, cref_value)
+        cref_groups = parse_group_list(source_cref)
+        if len(cref_groups) < 2:
+            fail(f"Malformed cleveref record for {label}")
+        cref_type, counter, _, display = parse_cref_field(cref_groups[0], label)
+        _, page_counter, _, page_display = parse_cref_field(
+            cref_groups[1], f"page for {label}"
+        )
+        if label not in external:
+            label_prefix = label.partition(":")[0].strip().lower()
+            kind = REFERENCE_KIND_NAMES.get(
+                label_prefix,
+                REFERENCE_KIND_NAMES.get(
+                    cref_type, cref_type.replace("-", " ").title()
+                ),
+            )
+            display = f"[{book_title}, {kind} {number}]"
+            cref_type = "nfmdraft"
+        display = require_plain(display, f"display text for {label}")
+        page_display = require_plain(page_display, f"page display for {label}")
+        if not SAFE_CREF_TYPE_RE.fullmatch(cref_type):
+            fail(f"Unsupported cleveref type for {label}: {cref_type}")
+        if not SAFE_COUNTER_RE.fullmatch(counter):
+            counter = "1"
+        if not SAFE_COUNTER_RE.fullmatch(page_counter):
+            page_counter = page if page.isdigit() else "1"
+        tag_match = re.search(r"(?:^|[,( ])Tag\s+([0-9A-Z]+)", display)
+        tag = tag_match.group(1) if tag_match else None
+        records.append(
+            {
+                "label": label,
+                "number": number,
+                "page": page,
+                "anchor": anchor,
+                "crefType": cref_type,
+                "crefCounter": counter,
+                "display": display,
+                "pageCounter": page_counter,
+                "pageDisplay": page_display,
+                "status": "published" if cref_type == "nfmpublished" else "draft",
+                "tag": tag,
+            }
+        )
+    return records
+
+
+def owned_reference_records(
+    data: dict[str, Any], *, allow_missing: bool
+) -> tuple[list[tuple[NoteDocument, list[dict[str, Any]]]], list[str]]:
+    """Choose one PDF owner and one canonical display record for every label.
+
+    A section PDF is the preferred link target because it is the smallest
+    independently published unit. The book build is the preferred source of
+    displayed numbering because it contains the canonical chapter/section
+    counters. Address fields still come from the owner build, so the PDF anchor
+    and page number remain valid in the linked file.
+    """
+    all_documents = documents(data)
+    book_title = require_string(data["book"].get("title"), "book.title")
+    occurrences: dict[str, list[tuple[NoteDocument, dict[str, Any]]]] = {}
+    missing: list[str] = []
+    for document in all_documents:
+        if not document.aux.is_file():
+            missing.append(relative(document.aux))
+            continue
+        for record in reference_records(document, book_title):
+            occurrences.setdefault(record["label"], []).append((document, record))
+
+    if missing and not allow_missing:
+        fail(
+            "Compile every book, chapter, and section before release. Missing: "
+            + ", ".join(missing)
+        )
+
+    owner_priority = {"section": 0, "chapter": 1, "book": 2}
+    canonical_priority = {"book": 0, "chapter": 1, "section": 2}
+    grouped: dict[str, tuple[NoteDocument, list[dict[str, Any]]]] = {}
+    for label in sorted(occurrences):
+        sources = occurrences[label]
+        best_owner_rank = min(owner_priority[item[0].kind] for item in sources)
+        owner_candidates = [
+            item for item in sources if owner_priority[item[0].kind] == best_owner_rank
+        ]
+        if len(owner_candidates) != 1:
+            locations = ", ".join(item[0].identity for item in owner_candidates)
+            fail(f"Duplicate repository label '{label}' in {locations}.")
+        owner, owner_record = owner_candidates[0]
+        _, canonical_record = min(
+            sources, key=lambda item: canonical_priority[item[0].kind]
+        )
+
+        published_sources = [
+            item for item in sources if item[1]["status"] == "published"
+        ]
+        if published_sources:
+            tags = {record["tag"] for _, record in published_sources}
+            if len(tags) != 1:
+                fail(f"Inconsistent published tags for label '{label}'.")
+            # Preserve publication-aware metadata when an aggregate .aux was
+            # produced before this class gained its .nfm-xref companion.
+            _, canonical_record = min(
+                published_sources,
+                key=lambda item: canonical_priority[item[0].kind],
+            )
+
+        combined = dict(canonical_record)
+        for field in ("page", "anchor", "pageCounter", "pageDisplay"):
+            combined[field] = owner_record[field]
+        entry = grouped.setdefault(owner.identity, (owner, []))
+        entry[1].append(combined)
+
+    order = {document.identity: index for index, document in enumerate(all_documents)}
+    groups = sorted(grouped.values(), key=lambda item: order[item[0].identity])
+    return groups, missing
+
+
+def catalog_cache_path(remote: RemoteRepository) -> Path:
+    return CACHE_DIR / "remotes" / remote.prefix / CATALOG_NAME
+
+
+def validate_record(value: object, field: str) -> dict[str, Any]:
+    record = require_mapping(value, field)
+    label = require_label(require_string(record.get("label"), f"{field}.label"))
+    number = require_plain(
+        require_string(record.get("number"), f"{field}.number"),
+        f"{field}.number",
+    )
+    page = require_plain(require_string(record.get("page"), f"{field}.page"), f"{field}.page")
+    anchor_value = record.get("anchor", "")
+    if not isinstance(anchor_value, str) or not SAFE_ANCHOR_RE.fullmatch(anchor_value):
+        fail(f"{field}.anchor is invalid.")
+    cref_type = require_string(record.get("crefType"), f"{field}.crefType")
+    counter = require_string(record.get("crefCounter"), f"{field}.crefCounter")
+    display = require_plain(
+        require_string(record.get("display"), f"{field}.display"),
+        f"{field}.display",
+    )
+    page_counter = require_string(record.get("pageCounter"), f"{field}.pageCounter")
+    page_display = require_plain(
+        require_string(record.get("pageDisplay"), f"{field}.pageDisplay"),
+        f"{field}.pageDisplay",
+    )
+    status = require_string(record.get("status"), f"{field}.status")
+    tag = record.get("tag")
+    if not SAFE_NUMBER_RE.fullmatch(number) or not SAFE_NUMBER_RE.fullmatch(page):
+        fail(f"{field} has an unsupported number or page.")
+    if not SAFE_CREF_TYPE_RE.fullmatch(cref_type):
+        fail(f"{field}.crefType is invalid.")
+    if not SAFE_COUNTER_RE.fullmatch(counter) or not SAFE_COUNTER_RE.fullmatch(page_counter):
+        fail(f"{field} has an invalid cleveref counter.")
+    if status not in {"draft", "published"}:
+        fail(f"{field}.status must be draft or published.")
+    if tag is not None and (not isinstance(tag, str) or not re.fullmatch(r"[0-9A-Z]+", tag)):
+        fail(f"{field}.tag is invalid.")
+    if status == "published" and not tag:
+        fail(f"{field} is published but has no tag.")
+    record["label"] = label
+    return record
+
+
+def validate_catalog(value: object, *, expected_repository: str | None = None) -> dict[str, Any]:
+    catalog = require_mapping(value, "reference catalog")
+    if catalog.get("schemaVersion") != CATALOG_SCHEMA_VERSION:
+        fail(f"Reference catalog schemaVersion must be {CATALOG_SCHEMA_VERSION}.")
+    repository = require_mapping(catalog.get("repository"), "catalog.repository")
+    repository_id = require_string(repository.get("id"), "catalog.repository.id")
+    if not SLUG_RE.fullmatch(repository_id):
+        fail(f"catalog.repository.id is not a lowercase slug: {repository_id}")
+    require_string(repository.get("title"), "catalog.repository.title")
+    if expected_repository is not None and repository_id != expected_repository:
+        fail(
+            f"Downloaded catalog identifies repository '{repository_id}', "
+            f"not '{expected_repository}'."
+        )
+    documents_value = require_list(catalog.get("documents"), "catalog.documents")
+    seen_documents: set[str] = set()
+    seen_labels: set[str] = set()
+    for document_index, document_value in enumerate(documents_value, start=1):
+        field = f"catalog.documents[{document_index}]"
+        document = require_mapping(document_value, field)
+        identity = require_string(document.get("id"), f"{field}.id")
+        if not ID_PATH_RE.fullmatch(identity):
+            fail(f"{field}.id is not a valid slash-separated slug: {identity}")
+        if identity in seen_documents:
+            fail(f"Duplicate catalog document ID: {identity}")
+        seen_documents.add(identity)
+        kind = require_string(document.get("kind"), f"{field}.kind")
+        if kind not in {"book", "chapter", "section"}:
+            fail(f"{field}.kind must be book, chapter, or section.")
+        require_http_url(require_string(document.get("url"), f"{field}.url"), f"{field}.url")
+        for record_index, record_value in enumerate(
+            require_list(document.get("labels"), f"{field}.labels"), start=1
+        ):
+            record = validate_record(record_value, f"{field}.labels[{record_index}]")
+            label = record["label"]
+            if label in seen_labels:
+                fail(f"Duplicate label in released catalog: {label}")
+            seen_labels.add(label)
+    return catalog
+
+
+def cache_document_base(prefix: str, identity: str) -> Path:
+    safe_name = identity.replace("/", "--")
+    return CACHE_DIR / "remotes" / prefix / "documents" / safe_name
+
+
+def aux_line(record: dict[str, Any]) -> str:
+    return (
+        f"\\newlabel{{{record['label']}}}"
+        f"{{{{{record['number']}}}{{{record['page']}}}{{}}"
+        f"{{{record['anchor']}}}{{}}}}"
+    )
+
+
+def xref_line(record: dict[str, Any]) -> str:
+    display = tex_escape(record["display"])
+    page_display = tex_escape(record["pageDisplay"])
+    first = f"[{record['crefType']}][{record['crefCounter']}][]{display}"
+    second = f"[page][{record['pageCounter']}][]{page_display}"
+    return (
+        f"\\NoteExternalReference{{{record['label']}}}"
+        f"{{{{{first}}}{{{second}}}{{}}{{}}{{}}}}"
+    )
+
+
+def local_reference_record(record: dict[str, Any]) -> dict[str, Any]:
+    local = dict(record)
+    label_prefix = record["label"].partition(":")[0].strip().lower()
+    kind = REFERENCE_KIND_NAMES.get(label_prefix)
+    if kind is None:
+        number_pattern = re.escape(record["number"])
+        match = re.search(
+            rf"([A-Z][A-Za-z -]*?)\s+{number_pattern}(?:,|\])",
+            record["display"],
+        )
+        kind = match.group(1).strip() if match else "Reference"
+    display = f"{kind} {record['number']}"
+    if record["status"] == "published":
+        tag = record.get("tag")
+        if not tag:
+            fail(f"Published label '{record['label']}' has no tag.")
+        display += f" (Tag {tag})"
+    local["display"] = display
+    return local
+
+
+def materialized_document_text(records: list[dict[str, Any]]) -> tuple[str, str]:
+    aux = (
+        "% Generated by manage-references; do not edit.\n"
+        + "\n".join(aux_line(record) for record in records)
+        + "\n"
+    )
+    xref = (
+        "% Generated by manage-references; do not edit.\n"
+        + "\n".join(xref_line(record) for record in records)
+        + "\n"
+    )
+    return aux, xref
+
+
+def materialized_remote_updates(
+    remote: RemoteRepository, catalog: dict[str, Any]
+) -> tuple[dict[Path, str], list[tuple[Path, str]]]:
+    updates: dict[Path, str] = {}
+    imports: list[tuple[Path, str]] = []
+    for document in catalog["documents"]:
+        base = cache_document_base(remote.prefix, document["id"])
+        records = document["labels"]
+        aux, xref = materialized_document_text(records)
+        updates[base.with_suffix(".aux")] = aux
+        updates[base.with_suffix(".nfm-xref")] = xref
+        imports.append((base, document["url"]))
+    return updates, imports
+
+
+def materialized_local_updates(
+    groups: list[tuple[NoteDocument, list[dict[str, Any]]]],
+) -> tuple[dict[Path, str], list[tuple[NoteDocument, Path]]]:
+    updates: dict[Path, str] = {}
+    imports: list[tuple[NoteDocument, Path]] = []
+    for document, records in groups:
+        safe_name = document.identity.replace("/", "--")
+        base = CACHE_DIR / "local" / "documents" / safe_name
+        local_records = [local_reference_record(record) for record in records]
+        aux, xref = materialized_document_text(local_records)
+        updates[base.with_suffix(".aux")] = aux
+        updates[base.with_suffix(".nfm-xref")] = xref
+        imports.append((document, base))
+    return updates, imports
+
+
+def load_cached_remotes(
+    data: dict[str, Any]
+) -> tuple[dict[Path, str], dict[str, list[tuple[Path, str]]]]:
+    updates: dict[Path, str] = {}
+    imports: dict[str, list[tuple[Path, str]]] = {}
+    for remote in remote_repositories(data):
+        path = catalog_cache_path(remote)
+        if not path.is_file():
+            fail(
+                f"External catalog for '{remote.prefix}' is not cached. "
+                f"Run manage-references fetch."
+            )
+        try:
+            value = json.loads(read_text(path))
+        except json.JSONDecodeError as error:
+            fail(f"Invalid cached catalog {relative(path)}: {error}")
+        catalog = validate_catalog(value)
+        repository_id = catalog["repository"]["id"]
+        if repository_id == data["book"]["id"]:
+            fail(f"Remote prefix '{remote.prefix}' points back to this repository.")
+        remote_updates, remote_imports = materialized_remote_updates(remote, catalog)
+        updates.update(remote_updates)
+        imports[remote.prefix] = remote_imports
+    return updates, imports
+
+
+def tex_relative(path: Path, start: Path) -> str:
+    return Path(os.path.relpath(path, start=start)).as_posix()
+
+
+def target_import_text(
+    target: NoteDocument,
+    local_imports: list[tuple[NoteDocument, Path]],
+    remote_imports: dict[str, list[tuple[Path, str]]],
+) -> str:
+    lines = [
+        "% Generated by manage-references; do not edit.",
+        f"% Target: {target.kind} {target.identity}",
+    ]
+    for source, base_path in local_imports:
+        if target.kind == "book":
+            continue
+        if target.kind == "chapter" and source.chapter_id == target.chapter_id:
+            continue
+        if target.kind == "section" and source.identity == target.identity:
+            continue
+        base = tex_relative(base_path, target.wrapper.parent)
+        pdf = tex_relative(source.base.with_suffix(".pdf"), target.wrapper.parent)
+        lines.append(rf"\externalnotedocument{{{base}}}[{pdf}]")
+    for prefix in sorted(remote_imports):
+        for base_path, url in remote_imports[prefix]:
+            base = tex_relative(base_path, target.wrapper.parent)
+            lines.append(rf"\externalnotedocument[{prefix}]{{{base}}}[{url}]")
+    return "\n".join(lines) + "\n"
+
+
+def wrapper_with_import(wrapper: Path, import_name: str) -> str:
+    content = read_text(wrapper)
+    block = (
+        f"{IMPORT_BLOCK_BEGIN}\n"
+        rf"\InputIfFileExists{{{import_name}}}{{}}{{}}"
+        f"\n{IMPORT_BLOCK_END}"
+    )
+    if IMPORT_BLOCK_BEGIN in content or IMPORT_BLOCK_END in content:
+        pattern = re.compile(
+            rf"{re.escape(IMPORT_BLOCK_BEGIN)}.*?{re.escape(IMPORT_BLOCK_END)}",
+            re.DOTALL,
+        )
+        if len(pattern.findall(content)) != 1:
+            fail(f"Expected one valid managed import block in {relative(wrapper)}")
+        return pattern.sub(lambda _: block, content)
+    marker = r"\begin{document}"
+    if content.count(marker) != 1:
+        fail(f"Expected exactly one {marker} in {relative(wrapper)}")
+    return content.replace(marker, block + "\n\n" + marker, 1)
+
+
+def desired_sync_updates(data: dict[str, Any]) -> dict[Path, str]:
+    all_documents = documents(data)
+    groups, _ = owned_reference_records(data, allow_missing=True)
+    updates, local_imports = materialized_local_updates(groups)
+    remote_updates, remote_imports = load_cached_remotes(data)
+    updates.update(remote_updates)
+    for target in all_documents:
+        updates[target.imports] = target_import_text(
+            target, local_imports, remote_imports
+        )
+        updates[target.wrapper] = wrapper_with_import(
+            target.wrapper, target.imports.name
+        )
+    return updates
+
+
+def changed_updates(updates: dict[Path, str]) -> dict[Path, str]:
+    return {
+        path: content
+        for path, content in updates.items()
+        if not path.is_file() or read_text(path) != content
+    }
+
+
+def apply_updates(updates: dict[Path, str], *, dry_run: bool, verb: str) -> None:
+    changes = changed_updates(updates)
+    if not changes:
+        print(f"No reference {verb} changes are needed.")
+        return
+    for path, content in changes.items():
+        if dry_run:
+            print(f"Would update {relative(path)}.")
+        else:
+            atomic_write(path, content)
+            print(f"Updated {relative(path)}.")
+
+
+def sync_command(data: dict[str, Any], dry_run: bool) -> None:
+    apply_updates(desired_sync_updates(data), dry_run=dry_run, verb="synchronization")
+
+
+def fetch_one(remote: RemoteRepository) -> dict[str, Any]:
+    request = urllib.request.Request(
+        remote.url,
+        headers={"User-Agent": "manage-references/1"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = response.read(MAX_CATALOG_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError) as error:
+        fail(f"Could not download {remote.url}: {error}")
+    if len(payload) > MAX_CATALOG_BYTES:
+        fail(f"Downloaded catalog for '{remote.prefix}' exceeds 10 MiB.")
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"Downloaded catalog for '{remote.prefix}' is invalid JSON: {error}")
+    return validate_catalog(value)
+
+
+def fetch_command(data: dict[str, Any], dry_run: bool) -> None:
+    remotes = remote_repositories(data)
+    if not remotes:
+        print("No external reference repositories are configured.")
+        sync_command(data, dry_run)
+        return
+    # Validate every response before replacing any cached catalog.
+    downloads = [(remote, fetch_one(remote)) for remote in remotes]
+    for remote, catalog in downloads:
+        path = catalog_cache_path(remote)
+        content = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
+        if dry_run:
+            print(f"Would download {remote.url} to {relative(path)}.")
+        else:
+            atomic_write(path, content)
+            print(f"Downloaded {remote.prefix} references to {relative(path)}.")
+    if not dry_run:
+        sync_command(data, False)
+
+
+def git_revision() -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    revision = result.stdout.strip()
+    return revision if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", revision) else None
+
+
+def release_catalog(
+    data: dict[str, Any], base_url: str, *, allow_missing: bool
+) -> dict[str, Any]:
+    require_http_url(base_url, "release base URL")
+    groups, missing = owned_reference_records(data, allow_missing=allow_missing)
+    released_documents: list[dict[str, Any]] = []
+    for document, records in groups:
+        released_documents.append(
+            {
+                "id": document.identity,
+                "kind": document.kind,
+                "url": urllib.parse.urljoin(
+                    base_url.rstrip("/") + "/", document.url
+                ),
+                "labels": records,
+            }
+        )
+    for path in missing:
+        print(f"Warning: skipping missing reference output {path}.", file=sys.stderr)
+    catalog: dict[str, Any] = {
+        "schemaVersion": CATALOG_SCHEMA_VERSION,
+        "repository": {
+            "id": data["book"]["id"],
+            "title": data["book"]["title"],
+        },
+        "documents": released_documents,
+    }
+    revision = git_revision()
+    if revision is not None:
+        catalog["repository"]["revision"] = revision
+    return validate_catalog(catalog)
+
+
+def release_command(args: argparse.Namespace, data: dict[str, Any]) -> None:
+    base_url = args.base_url or (
+        "https://www.tianleyang.com/"
+        + urllib.parse.quote(data["book"]["id"], safe="-")
+        + "/"
+    )
+    catalog = release_catalog(data, base_url, allow_missing=args.allow_missing)
+    output = ROOT / args.output
+    content = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
+    if args.dry_run:
+        label_count = sum(len(item["labels"]) for item in catalog["documents"])
+        print(f"Would write {label_count} labels to {relative(output)}.")
+    else:
+        atomic_write(output, content)
+        print(f"Wrote external reference catalog to {relative(output)}.")
+
+
+def validate_command(data: dict[str, Any]) -> None:
+    changes = changed_updates(desired_sync_updates(data))
+    if changes:
+        fail(
+            "Generated reference files are not synchronized: "
+            + ", ".join(relative(path) for path in changes)
+            + ". Run manage-references sync."
+        )
+    print("Reference configuration and generated import files are valid.")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="manage-references",
+        description=(
+            "Generate per-document LaTeX imports and exchange cross-repository "
+            "reference catalogs."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="show changes without writing files"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser(
+        "sync", help="regenerate local, cached, and per-document reference files"
+    )
+    subparsers.add_parser(
+        "fetch", help="download configured repository catalogs and synchronize"
+    )
+    subparsers.add_parser(
+        "update", help="alias for fetch: download catalogs and synchronize"
+    )
+    subparsers.add_parser(
+        "validate", help="validate catalogs, labels, and generated files"
+    )
+    release = subparsers.add_parser(
+        "release", help="create the public external-labels catalog"
+    )
+    release.add_argument(
+        "--base-url",
+        help=(
+            "absolute public base URL for notes.json URLs "
+            "(default: https://www.tianleyang.com/<book.id>/)"
+        ),
+    )
+    release.add_argument(
+        "--output", default=CATALOG_NAME, help=f"output path (default: {CATALOG_NAME})"
+    )
+    release.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="skip documents without compiled .aux files (not recommended for publication)",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    data = load_manifest()
+    if args.command == "sync":
+        sync_command(data, args.dry_run)
+    elif args.command in {"fetch", "update"}:
+        fetch_command(data, args.dry_run)
+    elif args.command == "release":
+        release_command(args, data)
+    elif args.command == "validate":
+        validate_command(data)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ManageReferencesError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        raise SystemExit(1)

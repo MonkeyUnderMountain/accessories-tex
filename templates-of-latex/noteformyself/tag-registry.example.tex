@@ -1,0 +1,56 @@
+% Example external registry for template_book.tex.
+% Active tags carry stable hierarchy, type, and source-label metadata.
+
+\DeclarePublishedTag{
+  tag=0ABCDEF,
+  book-tag=0,
+  chapter-tag=0AB,
+  section-tag=0ABCD,
+  book={Tag System Test Book},
+  type=theorem,
+  label=thm:published-comparison
+}
+
+\DeclarePublishedTag{
+  tag=0ABCDE1,
+  book-tag=0,
+  chapter-tag=0AB,
+  section-tag=0ABCD,
+  book={Tag System Test Book},
+  type=definition,
+  label=def:published-object
+}
+
+\DeclarePublishedTag{
+  tag=0ABCDE2,
+  book-tag=0,
+  chapter-tag=0AB,
+  section-tag=0ABCD,
+  book={Tag System Test Book},
+  type=theorem,
+  label=thm:untitled-published
+}
+
+\DeclarePublishedTag{
+  tag=0ABEF01,
+  book-tag=0,
+  chapter-tag=0AB,
+  section-tag=0ABEF,
+  book={Tag System Test Book},
+  type=proposition,
+  label=prop:published-in-draft
+}
+
+% Retired records keep their last published number and point to one active
+% replacement. They are queryable but can never be attached to new content.
+\DeclareRetiredTag{
+  tag=0ABCDE0,
+  book-tag=0,
+  chapter-tag=0AB,
+  section-tag=0ABCD,
+  book={Tag System Test Book},
+  type={Theorem},
+  label=thm:retired-comparison,
+  number=1.1.0,
+  replacement=0ABCDEF
+}

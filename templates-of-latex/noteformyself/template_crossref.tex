@@ -1,0 +1,30 @@
+% !TeX program = xelatex
+% Compile template_book.tex first so that template_book.aux is available.
+\documentclass{noteformyself}
+
+\title{Cross-Repository Reference Test}
+\author{Tianle Yang}
+\date{\today}
+
+\externalnotedocument[source]{template_book}
+
+\begin{document}
+
+\maketitle
+
+Published entries retain the imported book, current number, and permanent tag:
+\cref{source:thm:published-comparison} and
+\cref{source:thm:untitled-published}. The same remains true after an unchanged
+statement moves: \cref{source:prop:published-in-draft}.
+
+Published structural labels behave the same way: \cref{source:chap:published},
+\cref{source:sec:published}, and \cref{source:subsec:published}.
+
+A draft entry has only its structural locator:
+\cref{source:thm:untagged-draft}.
+
+Draft structural labels omit their provisional tags:
+\cref{source:chap:mixed-draft}, \cref{source:sec:mixed-draft}, and
+\cref{source:subsec:mixed-draft}.
+
+\end{document}

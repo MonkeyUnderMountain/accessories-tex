@@ -3,7 +3,7 @@
 % !TeX program = xelatex
 % !Bib program = biber
 % !TEX encoding = UTF-8 Unicode
-\ProvidesClass{noteformyself}[2026/09/03, v 1.1.7, for notes to myself]
+\ProvidesClass{noteformyself}[2026/09/09, v 1.2.0, for notes to myself]
 
 
 % 加载条件判断包（在使用\ifdefstring之前）
@@ -18,6 +18,8 @@
 
 % 定义sectionlevel选项
 \DeclareStringOption[section]{sectionlevel}
+% 当前编译范围的发布状态；可用 \notesetup 在文档中按 section 改写。
+\DeclareStringOption[draft]{status}
 
 % 处理未知选项，传递给基础文档类
 \DeclareDefaultOption{%
@@ -41,9 +43,6 @@
   \LoadClass[12pt]{article} % 基础文档类（article）
 }%
 \makeatother
-
-
-
 
 %--------------------------------------------------------------------------
 % 页面布局配置
@@ -75,6 +74,7 @@
   }
 }%
 \makeatother
+
 \renewcommand{\baselinestretch}{1.2} % 行距1.2倍
 
 
@@ -142,6 +142,7 @@
 \ExecuteBibliographyOptions{maxbibnames=99}                       % 显示所有作者
 
 % 交互功能
+\RequirePackage{xr-hyper}      % 跨文档标签和超链接支持
 \RequirePackage{hyperref}       % 超链接支持
 \hypersetup{
   colorlinks = true,            % 链接颜色
@@ -169,8 +170,12 @@
 %--------------------------------------------------------------------------
 \RequirePackage[most]{tcolorbox} % 彩色盒子环境
 
+% 定理标签由包装环境在定理标题生成前设置。
+\newcommand{\noteformyselfstatementtag}{}
+
 % 定义定理样式模板
-\newtheoremstyle{mystyle}{}{}{}{}{\bfseries}{.}{ }{}
+\newtheoremstyle{mystyle}{}{}{}{}{\bfseries}{.}{ }{%
+  \thmname{#1}\thmnumber{ #2}\thmnote{ (#3)}\noteformyselfstatementtag}
 \theoremstyle{mystyle}
 
 % 定义具体定理环境（共享计数器）
@@ -333,6 +338,931 @@
   breakable,
   before upper={\setlength{\parindent}{2em}},
 }
+
+
+%--------------------------------------------------------------------------
+% 永久标签、发布状态与跨文档引用
+%--------------------------------------------------------------------------
+% Supply cleveref with the publication-aware record before it writes the
+% ordinary label and the matching @cref label to the auxiliary file.
+\makeatletter
+\newcommand{\noteformyselfstatementlabel}[2]{%
+  \begingroup
+    % The 2025 LaTeX cleveref first-aid hook otherwise reconstructs this from
+    % the shared theorem counter immediately before \label writes the record.
+    \let\@currentcounter\@empty
+    \def\cref@currentlabel{#2}%
+    \label{#1}%
+  \endgroup
+}
+\makeatother
+
+\ExplSyntaxOn
+
+% 当前编译范围的元数据。book/chapter/section 标签是稳定 ID，而不是编号。
+\tl_new:N \g_nfm_scope_status_tl
+\tl_new:N \g_nfm_book_tag_tl
+\tl_new:N \g_nfm_chapter_tag_tl
+\tl_new:N \g_nfm_section_tag_tl
+\tl_new:N \g_nfm_book_name_tl
+
+\tl_gset:Nn \g_nfm_scope_status_tl { draft }
+\str_case_e:nnF { \use:c { noteformyself@status } }
+  {
+    { draft }     { \tl_gset:Nn \g_nfm_scope_status_tl { draft } }
+    { published } { \tl_gset:Nn \g_nfm_scope_status_tl { published } }
+  }
+  {
+    \ClassError{noteformyself}
+      {Unknown~class~status~'\use:c { noteformyself@status }'}
+      {Use~status=draft~or~status=published.}
+  }
+
+\msg_new:nnnn { noteformyself } { invalid-code }
+  { Invalid~#1~tag~'#2'. }
+  { Use~exactly~#3~uppercase~alphanumeric~characters~(0--9,~A--Z). }
+\msg_new:nnnn { noteformyself } { invalid-prefix }
+  { Tag~'#1'~does~not~extend~its~#2~tag~'#3'. }
+  { Tags~must~use~the~registered~1/3/5/7-character~prefix~hierarchy. }
+\msg_new:nnnn { noteformyself } { missing-context }
+  { A~published~item~has~no~#1~metadata. }
+  { Set~the~required~scope~metadata~with~\string\notesetup~or~tagged~division~keys. }
+\msg_new:nnnn { noteformyself } { draft-in-published }
+  { Draft~#1~found~in~a~published~scope. }
+  { Mark~the~entry~published~and~register~its~tag,~or~compile~the~scope~as~draft. }
+\msg_new:nnnn { noteformyself } { published-missing }
+  { Published~#1~is~missing~its~#2. }
+  { Every~published~item~requires~both~a~label~and~a~tag. }
+\msg_new:nnnn { noteformyself } { unknown-tag }
+  { Published~tag~'#1'~is~not~in~the~loaded~registry. }
+  { Add~it~to~the~global~registry~before~publishing. }
+\msg_new:nnnn { noteformyself } { retired-tag }
+  { Published~tag~'#1'~is~retired;~its~replacement~is~'#2'. }
+  { Use~a~new~active~tag.~Retired~tags~may~only~be~queried~as~frozen~records. }
+\msg_new:nnnn { noteformyself } { registry-mismatch }
+  { Registry~field~'#1'~for~tag~'#2'~is~'#3',~not~'#4'. }
+  { Correct~the~entry~metadata~or~the~global~registry~before~publishing. }
+\msg_new:nnnn { noteformyself } { missing-registry-field }
+  { Registry~record~'#1'~is~missing~the~required~field~'#2'. }
+  { Complete~the~record~in~the~external~tag~registry. }
+\msg_new:nnnn { noteformyself } { missing-registry }
+  { Tag~registry~file~'#1'~was~not~found. }
+  { Pass~an~existing~external~registry~to~\string\LoadNoteTagRegistry. }
+\msg_new:nnnn { noteformyself } { missing-replacement }
+  { Retired~tag~'#1'~points~to~unknown~replacement~'#2'. }
+  { Declare~the~replacement~tag~in~the~same~registry. }
+\msg_new:nnnn { noteformyself } { provisional-code }
+  { Provisional~draft~tag~'#1'~does~not~have~seven~base-36~characters. }
+  { Draft~compilation~continues,~but~the~tag~must~be~fixed~before~publication. }
+\msg_new:nnnn { noteformyself } { provisional-division-code }
+  { Provisional~draft~#1~tag~'#2'~is~malformed. }
+  { It~must~have~exactly~#3~uppercase~alphanumeric~characters~before~publication. }
+\msg_new:nnnn { noteformyself } { missing-xref-index }
+  { External~reference~index~'#1.nfm-xref'~was~not~found. }
+  { Compile~the~source~document~first.~Imported~references~will~omit~its~book~name. }
+
+\cs_generate_variant:Nn \regex_match:nnTF { nVTF }
+\cs_generate_variant:Nn \str_range:nnn { Vnn }
+\cs_generate_variant:Nn \prop_if_in:NnTF { NVTF }
+\cs_generate_variant:Nn \prop_get:NnNTF { NVNTF }
+\cs_generate_variant:Nn \prop_gput:Nnn { NVV, NVn }
+
+\keys_define:nn { nfm/setup }
+  {
+    status .choice:,
+    status / draft .code:n =
+      { \tl_gset:Nn \g_nfm_scope_status_tl { draft } },
+    status / published .code:n =
+      { \tl_gset:Nn \g_nfm_scope_status_tl { published } },
+    book-tag .tl_gset:N = \g_nfm_book_tag_tl,
+    chapter-tag .tl_gset:N = \g_nfm_chapter_tag_tl,
+    section-tag .tl_gset:N = \g_nfm_section_tag_tl,
+    book .tl_gset:N = \g_nfm_book_name_tl,
+  }
+
+\cs_new_protected:Npn \nfm_validate_code:Nnn #1#2#3
+  {
+    \regex_match:nVTF { \A [0-9A-Z]{#2} \Z } #1
+      { }
+      { \msg_error:nnnnn { noteformyself } { invalid-code } {#3} { \tl_use:N #1 } {#2} }
+  }
+
+\cs_new_protected:Npn \nfm_validate_prefix:NNnn #1#2#3#4
+  {
+    \str_if_eq:eeF
+      { \str_range:Vnn #1 { 1 } {#4} }
+      { \tl_to_str:V #2 }
+      {
+        \msg_error:nnnnn { noteformyself } { invalid-prefix }
+          { \tl_use:N #1 } {#3} { \tl_use:N #2 }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_validate_context:
+  {
+    \tl_if_blank:VF \g_nfm_book_tag_tl
+      { \nfm_validate_code:Nnn \g_nfm_book_tag_tl { 1 } { book } }
+    \tl_if_blank:VF \g_nfm_chapter_tag_tl
+      { \nfm_validate_code:Nnn \g_nfm_chapter_tag_tl { 3 } { chapter } }
+    \tl_if_blank:VF \g_nfm_section_tag_tl
+      { \nfm_validate_code:Nnn \g_nfm_section_tag_tl { 5 } { section } }
+    \tl_if_blank:VF \g_nfm_chapter_tag_tl
+      {
+        \tl_if_blank:VF \g_nfm_book_tag_tl
+          { \nfm_validate_prefix:NNnn \g_nfm_chapter_tag_tl \g_nfm_book_tag_tl { book } { 1 } }
+      }
+    \tl_if_blank:VF \g_nfm_section_tag_tl
+      {
+        \tl_if_blank:VF \g_nfm_chapter_tag_tl
+          { \nfm_validate_prefix:NNnn \g_nfm_section_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 } }
+      }
+  }
+
+\NewDocumentCommand \notesetup { m }
+  {
+    \keys_set:nn { nfm/setup } {#1}
+    \nfm_validate_context:
+  }
+
+% External global tag registry.
+\prop_new:N \g_nfm_registry_status_prop
+\prop_new:N \g_nfm_registry_book_tag_prop
+\prop_new:N \g_nfm_registry_chapter_tag_prop
+\prop_new:N \g_nfm_registry_section_tag_prop
+\prop_new:N \g_nfm_registry_book_name_prop
+\prop_new:N \g_nfm_registry_type_prop
+\prop_new:N \g_nfm_registry_label_prop
+\prop_new:N \g_nfm_registry_number_prop
+\prop_new:N \g_nfm_registry_replacement_prop
+\seq_new:N  \g_nfm_retired_tags_seq
+\iow_new:N  \g_nfm_xref_iow
+
+% The normal .aux record stays compact for references within the same book.
+% This companion file replaces only the imported cleveref record, adding the
+% source book name while retaining the ordinary xr-hyper label and hyperlink.
+\AtBeginDocument{\iow_open:Nn \g_nfm_xref_iow { \jobname.nfm-xref }}
+\AtEndDocument{\iow_close:N \g_nfm_xref_iow}
+
+\tl_new:N \l_nfm_registry_tag_tl
+\tl_new:N \l_nfm_registry_book_tag_tl
+\tl_new:N \l_nfm_registry_chapter_tag_tl
+\tl_new:N \l_nfm_registry_section_tag_tl
+\tl_new:N \l_nfm_registry_book_name_tl
+\tl_new:N \l_nfm_registry_type_tl
+\tl_new:N \l_nfm_registry_label_tl
+\tl_new:N \l_nfm_registry_number_tl
+\tl_new:N \l_nfm_registry_replacement_tl
+
+\keys_define:nn { nfm/registry }
+  {
+    tag .tl_set:N = \l_nfm_registry_tag_tl,
+    book-tag .tl_set:N = \l_nfm_registry_book_tag_tl,
+    chapter-tag .tl_set:N = \l_nfm_registry_chapter_tag_tl,
+    section-tag .tl_set:N = \l_nfm_registry_section_tag_tl,
+    book .tl_set:N = \l_nfm_registry_book_name_tl,
+    type .tl_set:N = \l_nfm_registry_type_tl,
+    label .tl_set:N = \l_nfm_registry_label_tl,
+    number .tl_set:N = \l_nfm_registry_number_tl,
+    replacement .tl_set:N = \l_nfm_registry_replacement_tl,
+  }
+
+\cs_new_protected:Npn \nfm_registry_reset:
+  {
+    \tl_clear:N \l_nfm_registry_tag_tl
+    \tl_clear:N \l_nfm_registry_book_tag_tl
+    \tl_clear:N \l_nfm_registry_chapter_tag_tl
+    \tl_clear:N \l_nfm_registry_section_tag_tl
+    \tl_clear:N \l_nfm_registry_book_name_tl
+    \tl_clear:N \l_nfm_registry_type_tl
+    \tl_clear:N \l_nfm_registry_label_tl
+    \tl_clear:N \l_nfm_registry_number_tl
+    \tl_clear:N \l_nfm_registry_replacement_tl
+  }
+
+\cs_new_protected:Npn \nfm_registry_require:Nn #1#2
+  {
+    \tl_if_blank:VT #1
+      {
+        \msg_error:nnnn { noteformyself } { missing-registry-field }
+          { \tl_use:N \l_nfm_registry_tag_tl } {#2}
+      }
+  }
+
+\cs_new_protected:Npn \nfm_registry_validate_hierarchy:
+  {
+    \nfm_validate_code:Nnn \l_nfm_registry_tag_tl { 7 } { entry }
+    \nfm_validate_code:Nnn \l_nfm_registry_book_tag_tl { 1 } { book }
+    \nfm_validate_code:Nnn \l_nfm_registry_chapter_tag_tl { 3 } { chapter }
+    \nfm_validate_code:Nnn \l_nfm_registry_section_tag_tl { 5 } { section }
+    \nfm_validate_prefix:NNnn
+      \l_nfm_registry_chapter_tag_tl \l_nfm_registry_book_tag_tl { book } { 1 }
+    \nfm_validate_prefix:NNnn
+      \l_nfm_registry_section_tag_tl \l_nfm_registry_chapter_tag_tl { chapter } { 3 }
+    \nfm_validate_prefix:NNnn
+      \l_nfm_registry_tag_tl \l_nfm_registry_section_tag_tl { section } { 5 }
+  }
+
+\cs_new_protected:Npn \nfm_registry_store:n #1
+  {
+    \prop_gput:NVn \g_nfm_registry_status_prop
+      \l_nfm_registry_tag_tl {#1}
+    \prop_gput:NVV \g_nfm_registry_book_tag_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_book_tag_tl
+    \prop_gput:NVV \g_nfm_registry_chapter_tag_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_chapter_tag_tl
+    \prop_gput:NVV \g_nfm_registry_section_tag_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_section_tag_tl
+    \prop_gput:NVV \g_nfm_registry_book_name_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_book_name_tl
+    \prop_gput:NVV \g_nfm_registry_type_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_type_tl
+    \prop_gput:NVV \g_nfm_registry_label_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_label_tl
+    \prop_gput:NVV \g_nfm_registry_number_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_number_tl
+    \prop_gput:NVV \g_nfm_registry_replacement_prop
+      \l_nfm_registry_tag_tl \l_nfm_registry_replacement_tl
+  }
+
+\cs_new_protected:Npn \nfm_declare_published_tag:n #1
+  {
+    \nfm_registry_reset:
+    \keys_set:nn { nfm/registry } {#1}
+    \nfm_registry_require:Nn \l_nfm_registry_tag_tl { tag }
+    \nfm_registry_require:Nn \l_nfm_registry_book_tag_tl { book-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_chapter_tag_tl { chapter-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_section_tag_tl { section-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_book_name_tl { book }
+    \nfm_registry_require:Nn \l_nfm_registry_type_tl { type }
+    \nfm_registry_require:Nn \l_nfm_registry_label_tl { label }
+    \nfm_registry_validate_hierarchy:
+    \nfm_registry_store:n { active }
+  }
+
+\cs_new_protected:Npn \nfm_declare_retired_tag:n #1
+  {
+    \nfm_registry_reset:
+    \keys_set:nn { nfm/registry } {#1}
+    \nfm_registry_require:Nn \l_nfm_registry_tag_tl { tag }
+    \nfm_registry_require:Nn \l_nfm_registry_book_tag_tl { book-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_chapter_tag_tl { chapter-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_section_tag_tl { section-tag }
+    \nfm_registry_require:Nn \l_nfm_registry_book_name_tl { book }
+    \nfm_registry_require:Nn \l_nfm_registry_type_tl { type }
+    \nfm_registry_require:Nn \l_nfm_registry_number_tl { number }
+    \nfm_registry_require:Nn \l_nfm_registry_replacement_tl { replacement }
+    \nfm_registry_validate_hierarchy:
+    \nfm_validate_code:Nnn \l_nfm_registry_replacement_tl { 7 } { entry }
+    \nfm_registry_store:n { retired }
+    \seq_gput_right:NV \g_nfm_retired_tags_seq \l_nfm_registry_tag_tl
+  }
+
+\NewDocumentCommand \DeclarePublishedTag { m }
+  { \nfm_declare_published_tag:n {#1} }
+\NewDocumentCommand \DeclareRetiredTag { m }
+  { \nfm_declare_retired_tag:n {#1} }
+\NewDocumentCommand \LoadNoteTagRegistry { m }
+  {
+    \InputIfFileExists{#1} { }
+      { \msg_error:nnn { noteformyself } { missing-registry } {#1} }
+  }
+
+\cs_new_protected:Npn \nfm_validate_retired_replacements:
+  {
+    \seq_map_inline:Nn \g_nfm_retired_tags_seq
+      {
+        \prop_get:NnNT \g_nfm_registry_replacement_prop {##1} \l_tmpa_tl
+          {
+            % A replacement may itself later be retired.  The external registry
+            % tool checks redirect chains and cycles; TeX only requires the
+            % next frozen record to exist.
+            \prop_if_in:NVTF \g_nfm_registry_status_prop \l_tmpa_tl
+              { }
+              {
+                \msg_error:nnnn { noteformyself } { missing-replacement }
+                  {##1} { \tl_use:N \l_tmpa_tl }
+              }
+          }
+      }
+  }
+\AtBeginDocument{\nfm_validate_retired_replacements:}
+
+% Per-entry metadata.
+\tl_new:N \l_nfm_statement_title_tl
+\tl_new:N \l_nfm_statement_status_tl
+\tl_new:N \l_nfm_statement_tag_tl
+\tl_new:N \l_nfm_statement_label_tl
+\tl_new:N \l_nfm_statement_number_tl
+\tl_new:N \l_nfm_statement_reference_tl
+\tl_new:N \l_nfm_statement_external_reference_tl
+\tl_new:N \l_nfm_statement_counter_tl
+\tl_new:N \l_nfm_statement_cref_tl
+\tl_new:N \l_nfm_statement_external_cref_tl
+
+\keys_define:nn { nfm/statement }
+  {
+    title .tl_set:N = \l_nfm_statement_title_tl,
+    status .choice:,
+    status / draft .code:n =
+      { \tl_set:Nn \l_nfm_statement_status_tl { draft } },
+    status / published .code:n =
+      { \tl_set:Nn \l_nfm_statement_status_tl { published } },
+    tag .tl_set:N = \l_nfm_statement_tag_tl,
+    label .tl_set:N = \l_nfm_statement_label_tl,
+  }
+
+\cs_new_protected:Npn \nfm_statement_reset:
+  {
+    \tl_clear:N \l_nfm_statement_title_tl
+    \tl_set:Nn \l_nfm_statement_status_tl { draft }
+    \tl_clear:N \l_nfm_statement_tag_tl
+    \tl_clear:N \l_nfm_statement_label_tl
+    \tl_clear:N \l_nfm_statement_number_tl
+    \tl_clear:N \l_nfm_statement_reference_tl
+    \tl_clear:N \l_nfm_statement_external_reference_tl
+    \tl_clear:N \l_nfm_statement_counter_tl
+    \tl_clear:N \l_nfm_statement_cref_tl
+    \tl_clear:N \l_nfm_statement_external_cref_tl
+    \cs_set:Npn \noteformyselfstatementtag { }
+  }
+
+\cs_new_protected:Npn \nfm_statement_parse:n #1
+  {
+    \IfNoValueF{#1}
+      {
+        \regex_match:nnTF
+          { \A \s* (title|status|tag|label) \s* = }
+          {#1}
+          { \keys_set:nn { nfm/statement } {#1} }
+          { \tl_set:Nn \l_nfm_statement_title_tl {#1} }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_require_context:Nn #1#2
+  {
+    \tl_if_blank:VT #1
+      { \msg_error:nnn { noteformyself } { missing-context } {#2} }
+  }
+
+\cs_new_protected:Npn \nfm_registry_expect:NNn #1#2#3
+  {
+    \prop_get:NVNTF #1 \l_nfm_statement_tag_tl \l_tmpa_tl
+      {
+        \tl_if_eq:NNF \l_tmpa_tl #2
+          {
+            \msg_error:nnnnnn { noteformyself } { registry-mismatch }
+              {#3}
+              { \tl_use:N \l_nfm_statement_tag_tl }
+              { \tl_use:N \l_tmpa_tl }
+              { \tl_use:N #2 }
+          }
+      }
+      { }
+  }
+
+\cs_new_protected:Npn \nfm_validate_published_statement:n #1
+  {
+    \tl_if_blank:VT \l_nfm_statement_tag_tl
+      {
+        \msg_error:nnnn { noteformyself } { published-missing }
+          {#1} { tag }
+      }
+    \tl_if_blank:VT \l_nfm_statement_label_tl
+      {
+        \msg_error:nnnn { noteformyself } { published-missing }
+          {#1} { label }
+      }
+    \nfm_require_context:Nn \g_nfm_book_tag_tl { book-tag }
+    \nfm_require_context:Nn \g_nfm_chapter_tag_tl { chapter-tag }
+    \nfm_require_context:Nn \g_nfm_section_tag_tl { section-tag }
+    \nfm_require_context:Nn \g_nfm_book_name_tl { book }
+    \nfm_validate_code:Nnn \l_nfm_statement_tag_tl { 7 } { entry }
+    \nfm_validate_context:
+    \prop_get:NVNTF
+      \g_nfm_registry_status_prop \l_nfm_statement_tag_tl \l_tmpa_tl
+      {
+        \tl_if_eq:VnTF \l_tmpa_tl { retired }
+          {
+            \prop_get:NVNTF \g_nfm_registry_replacement_prop
+              \l_nfm_statement_tag_tl \l_tmpb_tl
+              {
+                \msg_error:nnnn { noteformyself } { retired-tag }
+                  { \tl_use:N \l_nfm_statement_tag_tl } { \tl_use:N \l_tmpb_tl }
+              }
+              { }
+          }
+          {
+            % Hierarchical tag components record allocation origin.  They do
+            % not have to match the entry's present location after a move.
+            \nfm_registry_expect:NNn
+              \g_nfm_registry_book_name_prop \g_nfm_book_name_tl { book }
+            \tl_set:Nn \l_tmpb_tl {#1}
+            \nfm_registry_expect:NNn
+              \g_nfm_registry_type_prop \l_tmpb_tl { type }
+            \nfm_registry_expect:NNn
+              \g_nfm_registry_label_prop \l_nfm_statement_label_tl { label }
+          }
+      }
+      {
+        \msg_error:nnn { noteformyself } { unknown-tag }
+          { \tl_use:N \l_nfm_statement_tag_tl }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_prepare_statement:nn #1#2
+  {
+    \tl_if_eq:VnTF \l_nfm_statement_status_tl { published }
+      { \nfm_validate_published_statement:n {#1} }
+      {
+        \tl_if_eq:VnT \g_nfm_scope_status_tl { published }
+          { \msg_error:nnn { noteformyself } { draft-in-published } {#1} }
+        \tl_if_blank:VF \l_nfm_statement_tag_tl
+          {
+            \regex_match:nVTF
+              { \A [0-9A-Z]{7} \Z } \l_nfm_statement_tag_tl
+              { }
+              {
+                \msg_warning:nnn { noteformyself } { provisional-code }
+                  { \tl_use:N \l_nfm_statement_tag_tl }
+              }
+          }
+      }
+    \tl_if_blank:VF \l_nfm_statement_tag_tl
+      {
+        \tl_if_eq:VnTF \l_nfm_statement_status_tl { published }
+          {
+            \cs_set_protected:Npx \noteformyselfstatementtag
+              {
+                \nobreakspace
+                \exp_not:N \mbox
+                  { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
+                    { \exp_not:V \l_nfm_statement_tag_tl }) }
+              }
+          }
+          {
+            \cs_set_protected:Npx \noteformyselfstatementtag
+              {
+                \nobreakspace
+                \exp_not:N \mbox
+                  { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
+                    { \exp_not:V \l_nfm_statement_tag_tl }) }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_make_statement_reference:nn #1#2
+  {
+    \str_if_eq:nnTF {#1} { mainthm }
+      { \tl_set:Nn \l_nfm_statement_counter_tl { mainthm } }
+      { \tl_set:Nn \l_nfm_statement_counter_tl { definition } }
+    \tl_set:Nx \l_nfm_statement_number_tl { \use:c { the#1 } }
+    \tl_if_blank:VTF \g_nfm_book_name_tl
+      { \tl_set_eq:NN \l_tmpa_tl \g_nfm_book_tag_tl }
+      { \tl_set_eq:NN \l_tmpa_tl \g_nfm_book_name_tl }
+    \tl_if_eq:VnTF \l_nfm_statement_status_tl { published }
+      {
+        \tl_set:Nx \l_nfm_statement_reference_tl
+          {
+            #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl
+            \c_space_tl (Tag\c_space_tl
+            \exp_not:V \l_nfm_statement_tag_tl)
+          }
+        \tl_set:Nx \l_nfm_statement_external_reference_tl
+          {
+            [\exp_not:V \l_tmpa_tl,\c_space_tl
+            #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl,
+            \c_space_tl Tag\c_space_tl \exp_not:V \l_nfm_statement_tag_tl]
+          }
+        \tl_set:Nn \l_tmpb_tl { nfmpublished }
+      }
+      {
+        \cs_if_exist:cTF { c@chapter }
+          {
+            \tl_set:Nx \l_nfm_statement_reference_tl
+              {
+                #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl
+              }
+            \tl_set:Nx \l_nfm_statement_external_reference_tl
+              {
+                [\exp_not:V \l_tmpa_tl,\c_space_tl
+                Chapter\c_space_tl \int_use:c { c@chapter },\c_space_tl
+                Section\c_space_tl \int_use:c { c@section },\c_space_tl
+                #2\c_space_tl
+                \int_use:c { c@\tl_use:N \l_nfm_statement_counter_tl }]
+              }
+          }
+          {
+            \tl_set:Nx \l_nfm_statement_reference_tl
+              {
+                #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl
+              }
+            \tl_set:Nx \l_nfm_statement_external_reference_tl
+              {
+                [\exp_not:V \l_tmpa_tl,\c_space_tl
+                #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl]
+              }
+          }
+        \tl_set:Nn \l_tmpb_tl { nfmdraft }
+      }
+    \tl_set:Nx \l_nfm_statement_cref_tl
+      {
+        [\exp_not:V \l_tmpb_tl]
+        [\int_use:c { c@\tl_use:N \l_nfm_statement_counter_tl }][]
+        \exp_not:V \l_nfm_statement_reference_tl
+      }
+    \tl_set:Nx \l_nfm_statement_external_cref_tl
+      {
+        [\exp_not:V \l_tmpb_tl]
+        [\int_use:c { c@\tl_use:N \l_nfm_statement_counter_tl }][]
+        \exp_not:V \l_nfm_statement_external_reference_tl
+      }
+  }
+
+\cs_new_protected:Npn \nfm_write_statement_label:
+  {
+    \exp_args:NVV \noteformyselfstatementlabel
+      \l_nfm_statement_label_tl \l_nfm_statement_cref_tl
+    \iow_now:Nx \g_nfm_xref_iow
+      {
+        \token_to_str:N \NoteExternalReference
+        {\tl_to_str:V \l_nfm_statement_label_tl}
+        {
+          {\exp_not:V \l_nfm_statement_external_cref_tl}
+          {[\thepage][\arabic{page}][]\thepage}{}{}{}
+        }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_begin_titled_statement:nn #1#2
+  { \use:c { nfm_base_#1_begin: } [#2] }
+
+\cs_new_protected:Npn \nfm_statement_begin:nnn #1#2#3
+  {
+    \nfm_statement_reset:
+    \nfm_statement_parse:n {#3}
+    \nfm_prepare_statement:nn {#1} {#2}
+    \tl_if_blank:VTF \l_nfm_statement_title_tl
+      { \use:c { nfm_base_#1_begin: } }
+      {
+        \exp_args:NnV \nfm_begin_titled_statement:nn
+          {#1} \l_nfm_statement_title_tl
+      }
+    \tl_if_blank:VF \l_nfm_statement_label_tl
+      {
+        \nfm_make_statement_reference:nn {#1} {#2}
+        \nfm_write_statement_label:
+      }
+  }
+
+\cs_new_protected:Npn \nfm_statement_end:n #1
+  { \use:c { nfm_base_#1_end: } }
+
+\cs_new_protected:Npn \nfm_wrap_statement_environment:nn #1#2
+  {
+    \cs_new_eq:cc { nfm_base_#1_begin: } {#1}
+    \cs_new_eq:cc { nfm_base_#1_end: } { end#1 }
+    \RenewDocumentEnvironment{#1}{o}
+      { \nfm_statement_begin:nnn {#1} {#2} {##1} }
+      { \nfm_statement_end:n {#1} }
+  }
+
+\nfm_wrap_statement_environment:nn { definition }   { Definition }
+\nfm_wrap_statement_environment:nn { proposition }  { Proposition }
+\nfm_wrap_statement_environment:nn { theorem }      { Theorem }
+\nfm_wrap_statement_environment:nn { lemma }        { Lemma }
+\nfm_wrap_statement_environment:nn { corollary }    { Corollary }
+\nfm_wrap_statement_environment:nn { conjecture }   { Conjecture }
+\nfm_wrap_statement_environment:nn { question }     { Question }
+\nfm_wrap_statement_environment:nn { remark }       { Remark }
+\nfm_wrap_statement_environment:nn { claim }        { Claim }
+\nfm_wrap_statement_environment:nn { example }      { Example }
+\nfm_wrap_statement_environment:nn { exercise }     { Exercise }
+\nfm_wrap_statement_environment:nn { construction } { Construction }
+\nfm_wrap_statement_environment:nn { notation }     { Notation }
+\nfm_wrap_statement_environment:nn { mainthm }      { Theorem }
+
+% Publication-aware chapter, section, and subsection metadata.  Subsections
+% are tagged referenceable items, not a new allocation or status scope; their
+% seven-character tags share the section-level pool with theorem-like entries.
+\tl_new:N \l_nfm_division_short_title_tl
+\tl_new:N \l_nfm_division_status_tl
+\tl_new:N \l_nfm_division_tag_tl
+\tl_new:N \l_nfm_division_label_tl
+\tl_new:N \l_nfm_division_number_tl
+\tl_new:N \l_nfm_division_reference_tl
+\tl_new:N \l_nfm_division_external_reference_tl
+\tl_new:N \l_nfm_division_cref_tl
+\tl_new:N \l_nfm_division_external_cref_tl
+\tl_new:N \l_nfm_division_full_title_tl
+
+\keys_define:nn { nfm/division }
+  {
+    short-title .tl_set:N = \l_nfm_division_short_title_tl,
+    status .choice:,
+    status / draft .code:n =
+      { \tl_set:Nn \l_nfm_division_status_tl { draft } },
+    status / published .code:n =
+      { \tl_set:Nn \l_nfm_division_status_tl { published } },
+    tag .tl_set:N = \l_nfm_division_tag_tl,
+    label .tl_set:N = \l_nfm_division_label_tl,
+  }
+
+\cs_new_protected:Npn \nfm_division_reset:
+  {
+    \tl_clear:N \l_nfm_division_short_title_tl
+    \tl_set:Nx \l_nfm_division_status_tl
+      { \exp_not:V \g_nfm_scope_status_tl }
+    \tl_clear:N \l_nfm_division_tag_tl
+    \tl_clear:N \l_nfm_division_label_tl
+    \tl_clear:N \l_nfm_division_number_tl
+    \tl_clear:N \l_nfm_division_reference_tl
+    \tl_clear:N \l_nfm_division_external_reference_tl
+    \tl_clear:N \l_nfm_division_cref_tl
+    \tl_clear:N \l_nfm_division_external_cref_tl
+    \tl_clear:N \l_nfm_division_full_title_tl
+    \cs_set:Npn \noteformyselfdivisiontag { }
+  }
+
+\cs_new_protected:Npn \nfm_division_require:Nnn #1#2#3
+  {
+    \tl_if_blank:VT #1
+      { \msg_error:nnnn { noteformyself } { published-missing } {#2} {#3} }
+  }
+
+\cs_new_protected:Npn \nfm_validate_published_division:nnn #1#2#3
+  {
+    \nfm_division_require:Nnn \l_nfm_division_tag_tl {#2} { tag }
+    \nfm_division_require:Nnn \l_nfm_division_label_tl {#2} { label }
+    \nfm_require_context:Nn \g_nfm_book_tag_tl { book-tag }
+    \nfm_require_context:Nn \g_nfm_book_name_tl { book }
+    \str_case:nn {#1}
+      {
+        { chapter }
+          {
+            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 3 } { chapter }
+            \nfm_validate_prefix:NNnn
+              \l_nfm_division_tag_tl \g_nfm_book_tag_tl { book } { 1 }
+          }
+        { section }
+          {
+            \nfm_require_context:Nn \g_nfm_chapter_tag_tl { chapter-tag }
+            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 5 } { section }
+            \nfm_validate_prefix:NNnn
+              \l_nfm_division_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 }
+          }
+        { subsection }
+          {
+            \nfm_require_context:Nn \g_nfm_chapter_tag_tl { chapter-tag }
+            \nfm_require_context:Nn \g_nfm_section_tag_tl { section-tag }
+            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 7 } { subsection }
+            \nfm_validate_prefix:NNnn
+              \l_nfm_division_tag_tl \g_nfm_section_tag_tl { section } { 5 }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_prepare_division:nnn #1#2#3
+  {
+    \tl_if_eq:VnTF \l_nfm_division_status_tl { published }
+      { \nfm_validate_published_division:nnn {#1} {#2} {#3} }
+      {
+        \tl_if_blank:VF \l_nfm_division_tag_tl
+          {
+            \regex_match:nVTF
+              { \A [0-9A-Z]{#3} \Z } \l_nfm_division_tag_tl
+              { }
+              {
+                \msg_warning:nnnnn { noteformyself }
+                  { provisional-division-code }
+                  {#1} { \tl_use:N \l_nfm_division_tag_tl } {#3}
+              }
+          }
+      }
+    \tl_if_blank:VF \l_nfm_division_tag_tl
+      {
+        \tl_if_eq:VnTF \l_nfm_division_status_tl { published }
+          {
+            \cs_set_protected:Npx \noteformyselfdivisiontag
+              {
+                \nobreakspace
+                \exp_not:N \mbox
+                  { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
+                    { \exp_not:V \l_nfm_division_tag_tl }) }
+              }
+          }
+          {
+            \cs_set_protected:Npx \noteformyselfdivisiontag
+              {
+                \nobreakspace
+                \exp_not:N \mbox
+                  { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
+                    { \exp_not:V \l_nfm_division_tag_tl }) }
+              }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_update_division_scope:n #1
+  {
+    \str_case:nn {#1}
+      {
+        { chapter }
+          {
+            \tl_gset:Nx \g_nfm_chapter_tag_tl
+              { \exp_not:V \l_nfm_division_tag_tl }
+            \tl_gclear:N \g_nfm_section_tag_tl
+            \tl_gset:Nx \g_nfm_scope_status_tl
+              { \exp_not:V \l_nfm_division_status_tl }
+          }
+        { section }
+          {
+            \tl_gset:Nx \g_nfm_section_tag_tl
+              { \exp_not:V \l_nfm_division_tag_tl }
+            \tl_gset:Nx \g_nfm_scope_status_tl
+              { \exp_not:V \l_nfm_division_status_tl }
+          }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_make_division_reference:nn #1#2
+  {
+    \tl_set:Nx \l_nfm_division_number_tl { \use:c { the#1 } }
+    \tl_if_blank:VTF \g_nfm_book_name_tl
+      { \tl_set_eq:NN \l_tmpa_tl \g_nfm_book_tag_tl }
+      { \tl_set_eq:NN \l_tmpa_tl \g_nfm_book_name_tl }
+    \tl_if_eq:VnTF \l_nfm_division_status_tl { published }
+      {
+        \tl_set:Nx \l_nfm_division_reference_tl
+          {
+            #2\c_space_tl \exp_not:V \l_nfm_division_number_tl
+            \c_space_tl (Tag\c_space_tl
+            \exp_not:V \l_nfm_division_tag_tl)
+          }
+        \tl_set:Nx \l_nfm_division_external_reference_tl
+          {
+            [\exp_not:V \l_tmpa_tl,\c_space_tl
+            #2\c_space_tl \exp_not:V \l_nfm_division_number_tl,
+            \c_space_tl Tag\c_space_tl \exp_not:V \l_nfm_division_tag_tl]
+          }
+        \tl_set:Nn \l_tmpb_tl { nfmpublished }
+      }
+      {
+        \tl_set:Nx \l_nfm_division_reference_tl
+          { #2\c_space_tl \exp_not:V \l_nfm_division_number_tl }
+        \tl_set:Nx \l_nfm_division_external_reference_tl
+          {
+            [\exp_not:V \l_tmpa_tl,\c_space_tl
+            #2\c_space_tl \exp_not:V \l_nfm_division_number_tl]
+          }
+        \tl_set:Nn \l_tmpb_tl { nfmdraft }
+      }
+    \tl_set:Nx \l_nfm_division_cref_tl
+      {
+        [\exp_not:V \l_tmpb_tl][\int_use:c { c@#1 }][]
+        \exp_not:V \l_nfm_division_reference_tl
+      }
+    \tl_set:Nx \l_nfm_division_external_cref_tl
+      {
+        [\exp_not:V \l_tmpb_tl][\int_use:c { c@#1 }][]
+        \exp_not:V \l_nfm_division_external_reference_tl
+      }
+  }
+
+\cs_new_protected:Npn \nfm_write_division_label:
+  {
+    \exp_args:NVV \noteformyselfstatementlabel
+      \l_nfm_division_label_tl \l_nfm_division_cref_tl
+    \iow_now:Nx \g_nfm_xref_iow
+      {
+        \token_to_str:N \NoteExternalReference
+        {\tl_to_str:V \l_nfm_division_label_tl}
+        {
+          {\exp_not:V \l_nfm_division_external_cref_tl}
+          {[\thepage][\arabic{page}][]\thepage}{}{}{}
+        }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_call_division:Nnn #1#2#3
+  { #1[#2]{#3} }
+\cs_generate_variant:Nn \nfm_call_division:Nnn { NVV }
+
+\cs_new_protected:Npn \nfm_division_metadata:Nnnnnn #1#2#3#4#5#6
+  {
+    \nfm_division_reset:
+    \keys_set:nn { nfm/division } {#5}
+    \tl_if_blank:VT \l_nfm_division_short_title_tl
+      { \tl_set:Nn \l_nfm_division_short_title_tl {#6} }
+    \nfm_prepare_division:nnn {#2} {#3} {#4}
+    \nfm_update_division_scope:n {#2}
+    \tl_set:Nn \l_nfm_division_full_title_tl {#6}
+    \tl_put_right:Nn \l_nfm_division_full_title_tl
+      { \noteformyselfdivisiontag }
+    \nfm_call_division:NVV #1
+      \l_nfm_division_short_title_tl \l_nfm_division_full_title_tl
+    \tl_if_blank:VF \l_nfm_division_label_tl
+      {
+        \nfm_make_division_reference:nn {#2} {#3}
+        \nfm_write_division_label:
+      }
+  }
+
+\cs_new_protected:Npn \nfm_division_command:Nnnnnn #1#2#3#4#5#6
+  {
+    \IfNoValueTF{#5}
+      { #1{#6} }
+      {
+        \regex_match:nnTF
+          { \A \s* (short-title|status|tag|label) \s* = }
+          {#5}
+          { \nfm_division_metadata:Nnnnnn #1 {#2} {#3} {#4} {#5} {#6} }
+          { #1[#5]{#6} }
+      }
+  }
+
+\cs_new_protected:Npn \nfm_chapter_command:nnn #1#2#3
+  {
+    \IfBooleanTF{#1}
+      { \nfm_base_chapter*{#3} }
+      { \nfm_division_command:Nnnnnn \nfm_base_chapter { chapter } { Chapter } { 3 } {#2} {#3} }
+  }
+
+\cs_new_protected:Npn \nfm_section_command:nnn #1#2#3
+  {
+    \IfBooleanTF{#1}
+      { \nfm_base_section*{#3} }
+      { \nfm_division_command:Nnnnnn \nfm_base_section { section } { Section } { 5 } {#2} {#3} }
+  }
+
+\cs_new_protected:Npn \nfm_subsection_command:nnn #1#2#3
+  {
+    \IfBooleanTF{#1}
+      { \nfm_base_subsection*{#3} }
+      { \nfm_division_command:Nnnnnn \nfm_base_subsection { subsection } { Subsection } { 7 } {#2} {#3} }
+  }
+
+\tl_new:N \l_nfm_external_prefix_tl
+
+\cs_new_protected:Npn \nfm_external_reference:nn #1#2
+  {
+    \cs_gset:cpn
+      { r@\tl_use:N \l_nfm_external_prefix_tl #1@cref }
+      {#2}
+  }
+
+\NewDocumentCommand \NoteExternalReference { m m }
+  { \nfm_external_reference:nn {#1} {#2} }
+
+\NewDocumentCommand \externalnotedocument { O{} m O{} }
+  {
+    \tl_if_blank:nTF {#1}
+      {
+        \tl_if_blank:nTF {#3}
+          { \externaldocument{#2} }
+          { \externaldocument{#2}[#3] }
+        \tl_clear:N \l_nfm_external_prefix_tl
+      }
+      {
+        \tl_if_blank:nTF {#3}
+          { \externaldocument[#1:]{#2} }
+          { \externaldocument[#1:]{#2}[#3] }
+        \tl_set:Nn \l_nfm_external_prefix_tl {#1:}
+      }
+    \InputIfFileExists{#2.nfm-xref} { }
+      { \msg_warning:nnn { noteformyself } { missing-xref-index } {#2} }
+  }
+
+\NewDocumentCommand \NoteTagRecord { m }
+  {
+    \prop_get:NnNTF \g_nfm_registry_status_prop {#1} \l_tmpa_tl
+      {
+        \prop_get:NnN \g_nfm_registry_book_name_prop {#1} \l_tmpb_tl
+        \prop_get:NnN \g_nfm_registry_type_prop {#1} \l_tmpc_tl
+        \tl_if_eq:VnTF \l_tmpa_tl { retired }
+          {
+            \prop_get:NnN \g_nfm_registry_number_prop {#1} \l_tmpd_tl
+            \prop_get:NnN \g_nfm_registry_replacement_prop {#1} \l_tmpe_tl
+            [\tl_use:N \l_tmpb_tl,\c_space_tl \tl_use:N \l_tmpc_tl
+            \c_space_tl \tl_use:N \l_tmpd_tl,\c_space_tl
+            retired\c_space_tl Tag\c_space_tl \texttt{#1};\c_space_tl
+            replaced\c_space_tl by\c_space_tl Tag\c_space_tl
+            \texttt{\tl_use:N \l_tmpe_tl}]
+          }
+          {
+            [\tl_use:N \l_tmpb_tl,\c_space_tl \tl_use:N \l_tmpc_tl,
+            \c_space_tl Tag\c_space_tl \texttt{#1}]
+          }
+      }
+      { \msg_error:nnn { noteformyself } { unknown-tag } {#1} }
+  }
+
+\ExplSyntaxOff
+
+\crefformat{nfmpublished}{#2#1#3}
+\Crefformat{nfmpublished}{#2#1#3}
+\crefformat{nfmdraft}{#2#1#3}
+\Crefformat{nfmdraft}{#2#1#3}
 
 
 
@@ -760,3 +1690,20 @@
   }%
 }%
 \makeatother
+
+% titlesec may redefine the sectioning commands, so install the metadata
+% wrappers only after all title formats have been configured.
+\ExplSyntaxOn
+\cs_if_exist:NT \chapter
+  {
+    \cs_new_eq:NN \nfm_base_chapter \chapter
+    \RenewDocumentCommand \chapter { s o m }
+      { \nfm_chapter_command:nnn {#1} {#2} {#3} }
+  }
+\cs_new_eq:NN \nfm_base_section \section
+\RenewDocumentCommand \section { s o m }
+  { \nfm_section_command:nnn {#1} {#2} {#3} }
+\cs_new_eq:NN \nfm_base_subsection \subsection
+\RenewDocumentCommand \subsection { s o m }
+  { \nfm_subsection_command:nnn {#1} {#2} {#3} }
+\ExplSyntaxOff

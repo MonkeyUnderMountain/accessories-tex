@@ -1,68 +1,160 @@
-\documentclass[sectionlevel=book]{noteformyself}
+% !TeX program = xelatex
+\documentclass[sectionlevel=book,status=draft]{noteformyself}
 
-
-\input{../Accessories/notation.tex}             % 加载符号定义文件
-\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
-
-
-\title{Template for the class ``Note for Myself'' in sectionlevel=book}
-\author{The author}
+\title{Permanent Tag System Test Book}
+\author{Tianle Yang}
 \date{\today}
-\authorpage{\href{https://www.example.com}{example.com}}
+\covertitlefont{TeX Gyre Pagella}
+\coversentence{A compact test document for published and draft entries.}
+\version{1.2.0-dev}
 
-% available on the mode "\sectionlevel=chapter" or "\sectionlevel=book".
-\setCJKfamilyfont{lxgwwenkai}{LXGW WenKai} % 定义霞鹜文楷，若未安装，请去掉相关代码编译或使用其他字体
-\coversentence{\CJKfamily{lxgwwenkai}阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴!}
-\coverimage{placeholder.jpg} % 封面图片
-\covertitlefont{Allura} % 封面标题字体, 若未安装，请去掉相关代码编译或使用其他字体
-% \coverlinecolor{red} % 封面线条颜色
-% \covertextcolor{green} % 封面文字颜色
+% In a real notes workspace, this should be the single global registry shared by
+% every repository. This local file is deliberately small enough for testing.
+\LoadNoteTagRegistry{tag-registry.example.tex}
 
-% available on the mode "\sectionlevel=book".
-\authoremail{email}
-\texsource{\href{https://github.com/MonkeyUnderMountain/TexTemplates}{github.com/MonkeyUnderMountain/TexTemplates}}
-\version{}
+\notesetup{
+  book={Tag System Test Book},
+  book-tag=0,
+  status=draft
+}
 
 \begin{document}
 
-    \maketitle
+\maketitle
+\tableofcontents
 
-    \tableofcontents % 生成目录
+\chapter[
+  status=published,
+  tag=0AB,
+  label=chap:published
+]{The first tagged chapter}
 
-    \chapter{In sectionlevel=book}
+\section[
+  status=published,
+  tag=0ABCD,
+  label=sec:published
+]{A published section}
 
-        \input{text.tex} % 这里是正文
+\subsection[status=published,tag=0ABCDS1,label=subsec:published]{Published statements}
 
-        \subsection{sectionlevel=book}
+\begin{theorem}[
+  title={Fundamental comparison},
+  status=published,
+  tag=0ABCDEF,
+  label=thm:published-comparison
+]
+  If two objects satisfy the same universal property, they are uniquely
+  isomorphic in the appropriate sense.
+\end{theorem}
 
-        % In this mode, the section is the highest level, and usually there is only one section in the document. 
-        % There is no title page, no table of contents, and no cover image.
-        % All theorem and definition environments are labelled with a unique number, and the numbering is continuous throughout the document.
+\begin{definition}[
+  status=published,
+  tag=0ABCDE1,
+  label=def:published-object
+]
+  A published object is an entry whose semantic content and permanent tag have
+  been recorded in the global registry.
+\end{definition}
 
-        In this mode, the chapter is the highest level.
-        The section is the second level, and the subsection is the third level.
-        The section is numbered with the chapter number, such as 1.1, 1.2, etc.
-        There is a title page, a table of contents, and a cover image.
-        All theorem and definition environments are labelled in the form of chapter.number, such as 1.1, 1.2, etc.
+% The title key is genuinely optional, including for published theorems.
+\begin{theorem}[
+  status=published,
+  tag=0ABCDE2,
+  label=thm:untitled-published
+]
+  A permanent tag does not require the statement to have a title.
+\end{theorem}
 
-    \chapter{Test}
+The local published structural references are \cref{chap:published},
+\cref{sec:published}, and \cref{subsec:published}. The published statement
+references are
+\cref{thm:published-comparison}, \cref{def:published-object}, and
+\cref{thm:untitled-published}.
 
-        Test references \cite{Har77}.
+The old identifier remains queryable as the frozen record
+\NoteTagRecord{0ABCDE0}.
 
+\chapter[
+  status=draft,
+  tag=0CD,
+  label=chap:mixed-draft
+]{A draft chapter}
 
-        \section{Test Section}
+% This is now the entry's current section. The proposition below was allocated
+% under section tag 0ABEF and retains that old tag unchanged after the move.
+\section[
+  status=draft,
+  tag=0CDEF,
+  label=sec:mixed-draft
+]{A mixed draft section}
 
-        \subsection{Test Subsection}
+\subsection[
+  status=draft,
+  tag=0CDEFS1,
+  label=subsec:mixed-draft
+]{Published and provisional entries}
 
-        Test plots:
+This section remains draft because it contains both published and draft entries.
 
-        \begin{figure}[htbp]
-            \begin{center}
-                \input{drawing-1.tex}
-            \end{center}
-        \end{figure}
+\begin{proposition}[
+  status=published,
+  tag=0ABEF01,
+  label=prop:published-in-draft
+]
+  An individually published entry may remain inside a section that is still
+  being drafted.
+\end{proposition}
 
-        There are some test texts here, and some test equations:
+\begin{theorem}[label=thm:untagged-draft]
+  This draft theorem has no provisional tag and therefore uses only its current
+  structural location when referenced.
+\end{theorem}
 
-    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+\begin{example}[
+  tag=0ABEFZZ,
+  label=eg:first-provisional
+]
+  A provisional draft tag is visible but is not reserved globally.
+\end{example}
+
+\begin{remark}[
+  tag=0ABEFZZ,
+  label=rmk:duplicate-provisional
+]
+  Repeating a provisional tag is permitted while the containing section remains
+  draft. Publication validation will require a new unique registered tag.
+\end{remark}
+
+The draft structural references omit provisional tags:
+\cref{chap:mixed-draft}, \cref{sec:mixed-draft}, and
+\cref{subsec:mixed-draft}.
+
+The mixed-section references are \cref{prop:published-in-draft},
+\cref{thm:untagged-draft}, \cref{eg:first-provisional}, and
+\cref{rmk:duplicate-provisional}.
+
+% This negative test is disabled during an ordinary compilation. It can be
+% enabled from the command line to confirm that strict publication fails.
+\ifdefined\NFMTestMissingTag
+  \section[
+    status=published,
+    tag=0CDIJ,
+    label=sec:negative-missing-tag
+  ]{Negative test: missing published tag}
+  \begin{theorem}[status=published,label=thm:missing-published-tag]
+    This entry must make a publication build fail.
+  \end{theorem}
+\fi
+
+\ifdefined\NFMTestDraftInPublished
+  \section[
+    status=published,
+    tag=0CDIJ,
+    label=sec:negative-draft-entry
+  ]{Negative test: draft entry in a published section}
+  \begin{theorem}
+    This draft entry must make a publication build fail.
+  \end{theorem}
+\fi
+
 \end{document}
