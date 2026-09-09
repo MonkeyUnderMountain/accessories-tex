@@ -4,6 +4,7 @@
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.nfm-xref
+.note-references/
 *.lof
 *.log
 *.lot

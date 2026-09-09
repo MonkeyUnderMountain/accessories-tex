@@ -20,8 +20,11 @@ from typing import Any, NoReturn
 
 CATALOG_SCHEMA_VERSION = 1
 CATALOG_NAME = "external-labels.json"
-CACHE_DIR_NAME = ".note-references"
-IMPORT_SUFFIX = ".external-labels.tex"
+TRACKED_DIR_NAME = "label-references"
+IMPORT_NAME = "external-labels.tex"
+LEGACY_IMPORT_SUFFIX = ".external-labels.tex"
+# Keep the original marker spelling so repositories synchronized by the
+# earlier executable are upgraded in place instead of receiving a second block.
 IMPORT_BLOCK_BEGIN = "% manage-references:begin imports"
 IMPORT_BLOCK_END = "% manage-references:end imports"
 REMOTE_PREFIX_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -29,10 +32,11 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 ID_PATH_RE = re.compile(
     r"^[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*$"
 )
-SAFE_NUMBER_RE = re.compile(r"^[0-9A-Za-z.*(): -]+$")
+SAFE_REFERENCE_NUMBER_RE = re.compile(r"^[0-9A-Za-z.*(): -]*$")
+SAFE_PAGE_RE = re.compile(r"^[0-9A-Za-z.*(): -]+$")
 SAFE_COUNTER_RE = re.compile(r"^[0-9]+$")
 SAFE_CREF_TYPE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9@_-]*$")
-SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z:._-]*$")
+SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z:._@-]*$")
 MAX_CATALOG_BYTES = 10 * 1024 * 1024
 REFERENCE_KIND_NAMES = {
     "chapter": "Chapter",
@@ -68,6 +72,8 @@ REFERENCE_KIND_NAMES = {
     "cons": "Construction",
     "notation": "Notation",
     "not": "Notation",
+    "slogan": "Slogan",
+    "mainthm": "Theorem",
     "equation": "Equation",
     "eq": "Equation",
     "figure": "Figure",
@@ -79,6 +85,10 @@ REFERENCE_KIND_NAMES = {
 
 class ManageReferencesError(RuntimeError):
     """An error that can be reported without a traceback."""
+
+
+class CatalogUnavailableError(ManageReferencesError):
+    """A published catalog could not be reached."""
 
 
 @dataclass(frozen=True)
@@ -104,13 +114,23 @@ class NoteDocument:
 
     @property
     def imports(self) -> Path:
-        return self.wrapper.with_name(self.wrapper.stem + IMPORT_SUFFIX)
+        return self.wrapper.with_name(IMPORT_NAME)
+
+    @property
+    def legacy_imports(self) -> Path:
+        return self.wrapper.with_name(self.wrapper.stem + LEGACY_IMPORT_SUFFIX)
 
 
 @dataclass(frozen=True)
 class RemoteRepository:
     prefix: str
-    url: str
+    download_url: str | None
+
+
+@dataclass(frozen=True)
+class ReferenceCatalog:
+    file: str
+    download_url: str | None
 
 
 def fail(message: str) -> NoReturn:
@@ -147,7 +167,9 @@ def find_repo_root() -> Path:
 
 ROOT = find_repo_root()
 MANIFEST = ROOT / os.environ.get("MANAGE_NOTES_MANIFEST", "notes.json")
-CACHE_DIR = ROOT / CACHE_DIR_NAME
+TRACKED_DIR = ROOT / TRACKED_DIR_NAME
+CATALOG_DIR = TRACKED_DIR / "catalogs"
+RECORDS_DIR = TRACKED_DIR / "records"
 
 
 def read_text(path: Path) -> str:
@@ -216,6 +238,7 @@ def load_manifest() -> dict[str, Any]:
     require_string(book.get("tex"), "book.tex")
     require_string(book.get("url"), "book.url")
     require_list(book.get("chapters"), "book.chapters")
+    reference_catalog(root)
     remote_repositories(root)
     documents(root)
     return root
@@ -279,6 +302,15 @@ def documents(data: dict[str, Any]) -> list[NoteDocument]:
     for document in result:
         if not document.wrapper.is_file():
             fail(f"Document wrapper is missing: {relative(document.wrapper)}")
+    import_owners: dict[Path, str] = {}
+    for document in result:
+        previous = import_owners.get(document.imports)
+        if previous is not None:
+            fail(
+                f"Documents '{previous}' and '{document.identity}' share the "
+                f"generated import path {relative(document.imports)}."
+            )
+        import_owners[document.imports] = document.identity
     return result
 
 
@@ -289,15 +321,57 @@ def remote_repositories(data: dict[str, Any]) -> list[RemoteRepository]:
     for index, value in enumerate(require_list(raw, "externalReferences"), start=1):
         record = require_mapping(value, f"externalReferences[{index}]")
         prefix = require_string(record.get("prefix"), f"externalReferences[{index}].prefix")
-        url = require_string(record.get("url"), f"externalReferences[{index}].url")
+        raw_download_url = record.get("downloadUrl")
+        if raw_download_url is None or raw_download_url == "":
+            download_url = None
+        else:
+            download_url = require_string(
+                raw_download_url,
+                f"externalReferences[{index}].downloadUrl",
+            )
+            require_http_url(
+                download_url,
+                f"externalReferences[{index}].downloadUrl",
+            )
         if not REMOTE_PREFIX_RE.fullmatch(prefix):
             fail(f"Invalid external reference prefix: {prefix}")
         if prefix in seen:
             fail(f"Duplicate external reference prefix: {prefix}")
-        require_http_url(url, f"catalog URL for {prefix}")
         seen.add(prefix)
-        result.append(RemoteRepository(prefix=prefix, url=url))
+        result.append(
+            RemoteRepository(prefix=prefix, download_url=download_url)
+        )
     return result
+
+
+def reference_catalog(data: dict[str, Any]) -> ReferenceCatalog | None:
+    raw = data.get("referenceCatalog")
+    if raw is None:
+        return None
+    record = require_mapping(raw, "referenceCatalog")
+    file = require_string(record.get("file"), "referenceCatalog.file")
+    require_repository_path(file, "referenceCatalog.file")
+    raw_download_url = record.get("downloadUrl")
+    if raw_download_url is None or raw_download_url == "":
+        download_url = None
+    else:
+        download_url = require_string(
+            raw_download_url, "referenceCatalog.downloadUrl"
+        )
+        require_http_url(download_url, "referenceCatalog.downloadUrl")
+    return ReferenceCatalog(file=file, download_url=download_url)
+
+
+def require_repository_path(value: str, field: str) -> str:
+    path = Path(value)
+    if (
+        path.is_absolute()
+        or value != path.as_posix()
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(character in value for character in "\\{}[]%#\t\r\n ")
+    ):
+        fail(f"{field} must be a safe repository-relative path: {value}")
+    return value
 
 
 def require_http_url(value: str, field: str) -> str:
@@ -441,9 +515,9 @@ def reference_records(document: NoteDocument, book_title: str) -> list[dict[str,
         number = require_plain(base_groups[0], f"number for {label}")
         page = require_plain(base_groups[1], f"page for {label}")
         anchor = require_plain(base_groups[3], f"anchor for {label}")
-        if not SAFE_NUMBER_RE.fullmatch(number):
+        if not SAFE_REFERENCE_NUMBER_RE.fullmatch(number):
             fail(f"Unsupported reference number for {label}: {number}")
-        if not SAFE_NUMBER_RE.fullmatch(page):
+        if not SAFE_PAGE_RE.fullmatch(page):
             fail(f"Unsupported reference page for {label}: {page}")
         if not SAFE_ANCHOR_RE.fullmatch(anchor):
             fail(f"Unsupported PDF anchor for {label}: {anchor}")
@@ -464,7 +538,8 @@ def reference_records(document: NoteDocument, book_title: str) -> list[dict[str,
                     cref_type, cref_type.replace("-", " ").title()
                 ),
             )
-            display = f"[{book_title}, {kind} {number}]"
+            locator = kind + (f" {number}" if number else "")
+            display = f"[{book_title}, {locator}]"
             cref_type = "nfmdraft"
         display = require_plain(display, f"display text for {label}")
         page_display = require_plain(page_display, f"page display for {label}")
@@ -494,6 +569,70 @@ def reference_records(document: NoteDocument, book_title: str) -> list[dict[str,
     return records
 
 
+def combine_reference_occurrences(
+    label: str,
+    sources: list[tuple[NoteDocument, dict[str, Any]]],
+    *,
+    address_record: dict[str, Any] | None = None,
+) -> tuple[NoteDocument, dict[str, Any]]:
+    """Choose a PDF owner and canonical display record for one label."""
+    owner_priority = {"section": 0, "chapter": 1, "book": 2}
+    canonical_priority = {"book": 0, "chapter": 1, "section": 2}
+    best_owner_rank = min(owner_priority[item[0].kind] for item in sources)
+    owner_candidates = [
+        item for item in sources if owner_priority[item[0].kind] == best_owner_rank
+    ]
+    if len(owner_candidates) != 1:
+        locations = ", ".join(item[0].identity for item in owner_candidates)
+        fail(f"Duplicate repository label '{label}' in {locations}.")
+    owner, fresh_address_record = owner_candidates[0]
+    _, canonical_record = min(
+        sources, key=lambda item: canonical_priority[item[0].kind]
+    )
+
+    published_sources = [
+        item for item in sources if item[1]["status"] == "published"
+    ]
+    if published_sources:
+        tags = {record["tag"] for _, record in published_sources}
+        if len(tags) != 1:
+            fail(f"Inconsistent published tags for label '{label}'.")
+        # Preserve publication-aware metadata when an aggregate .aux was
+        # produced before this class gained its .nfm-xref companion.
+        _, canonical_record = min(
+            published_sources,
+            key=lambda item: canonical_priority[item[0].kind],
+        )
+
+    combined = dict(canonical_record)
+    address = address_record or fresh_address_record
+    for field in ("page", "anchor", "pageCounter", "pageDisplay"):
+        combined[field] = address[field]
+    return owner, combined
+
+
+def reference_occurrences(
+    data: dict[str, Any], selected: set[str] | None = None
+) -> tuple[
+    list[NoteDocument],
+    dict[str, list[tuple[NoteDocument, dict[str, Any]]]],
+    list[str],
+]:
+    all_documents = documents(data)
+    book_title = require_string(data["book"].get("title"), "book.title")
+    occurrences: dict[str, list[tuple[NoteDocument, dict[str, Any]]]] = {}
+    missing: list[str] = []
+    for document in all_documents:
+        if selected is not None and document.identity not in selected:
+            continue
+        if not document.aux.is_file():
+            missing.append(relative(document.aux))
+            continue
+        for record in reference_records(document, book_title):
+            occurrences.setdefault(record["label"], []).append((document, record))
+    return all_documents, occurrences, missing
+
+
 def owned_reference_records(
     data: dict[str, Any], *, allow_missing: bool
 ) -> tuple[list[tuple[NoteDocument, list[dict[str, Any]]]], list[str]]:
@@ -505,57 +644,16 @@ def owned_reference_records(
     counters. Address fields still come from the owner build, so the PDF anchor
     and page number remain valid in the linked file.
     """
-    all_documents = documents(data)
-    book_title = require_string(data["book"].get("title"), "book.title")
-    occurrences: dict[str, list[tuple[NoteDocument, dict[str, Any]]]] = {}
-    missing: list[str] = []
-    for document in all_documents:
-        if not document.aux.is_file():
-            missing.append(relative(document.aux))
-            continue
-        for record in reference_records(document, book_title):
-            occurrences.setdefault(record["label"], []).append((document, record))
-
+    all_documents, occurrences, missing = reference_occurrences(data)
     if missing and not allow_missing:
         fail(
             "Compile every book, chapter, and section before release. Missing: "
             + ", ".join(missing)
         )
 
-    owner_priority = {"section": 0, "chapter": 1, "book": 2}
-    canonical_priority = {"book": 0, "chapter": 1, "section": 2}
     grouped: dict[str, tuple[NoteDocument, list[dict[str, Any]]]] = {}
     for label in sorted(occurrences):
-        sources = occurrences[label]
-        best_owner_rank = min(owner_priority[item[0].kind] for item in sources)
-        owner_candidates = [
-            item for item in sources if owner_priority[item[0].kind] == best_owner_rank
-        ]
-        if len(owner_candidates) != 1:
-            locations = ", ".join(item[0].identity for item in owner_candidates)
-            fail(f"Duplicate repository label '{label}' in {locations}.")
-        owner, owner_record = owner_candidates[0]
-        _, canonical_record = min(
-            sources, key=lambda item: canonical_priority[item[0].kind]
-        )
-
-        published_sources = [
-            item for item in sources if item[1]["status"] == "published"
-        ]
-        if published_sources:
-            tags = {record["tag"] for _, record in published_sources}
-            if len(tags) != 1:
-                fail(f"Inconsistent published tags for label '{label}'.")
-            # Preserve publication-aware metadata when an aggregate .aux was
-            # produced before this class gained its .nfm-xref companion.
-            _, canonical_record = min(
-                published_sources,
-                key=lambda item: canonical_priority[item[0].kind],
-            )
-
-        combined = dict(canonical_record)
-        for field in ("page", "anchor", "pageCounter", "pageDisplay"):
-            combined[field] = owner_record[field]
+        owner, combined = combine_reference_occurrences(label, occurrences[label])
         entry = grouped.setdefault(owner.identity, (owner, []))
         entry[1].append(combined)
 
@@ -564,17 +662,13 @@ def owned_reference_records(
     return groups, missing
 
 
-def catalog_cache_path(remote: RemoteRepository) -> Path:
-    return CACHE_DIR / "remotes" / remote.prefix / CATALOG_NAME
-
-
 def validate_record(value: object, field: str) -> dict[str, Any]:
     record = require_mapping(value, field)
     label = require_label(require_string(record.get("label"), f"{field}.label"))
-    number = require_plain(
-        require_string(record.get("number"), f"{field}.number"),
-        f"{field}.number",
-    )
+    raw_number = record.get("number")
+    if not isinstance(raw_number, str):
+        fail(f"{field}.number must be a string.")
+    number = require_plain(raw_number, f"{field}.number")
     page = require_plain(require_string(record.get("page"), f"{field}.page"), f"{field}.page")
     anchor_value = record.get("anchor", "")
     if not isinstance(anchor_value, str) or not SAFE_ANCHOR_RE.fullmatch(anchor_value):
@@ -592,7 +686,9 @@ def validate_record(value: object, field: str) -> dict[str, Any]:
     )
     status = require_string(record.get("status"), f"{field}.status")
     tag = record.get("tag")
-    if not SAFE_NUMBER_RE.fullmatch(number) or not SAFE_NUMBER_RE.fullmatch(page):
+    if not SAFE_REFERENCE_NUMBER_RE.fullmatch(
+        number
+    ) or not SAFE_PAGE_RE.fullmatch(page):
         fail(f"{field} has an unsupported number or page.")
     if not SAFE_CREF_TYPE_RE.fullmatch(cref_type):
         fail(f"{field}.crefType is invalid.")
@@ -649,26 +745,92 @@ def validate_catalog(value: object, *, expected_repository: str | None = None) -
     return catalog
 
 
-def cache_document_base(prefix: str, identity: str) -> Path:
-    safe_name = identity.replace("/", "--")
-    return CACHE_DIR / "remotes" / prefix / "documents" / safe_name
+def merge_catalog_with_outputs(
+    data: dict[str, Any],
+    previous: dict[str, Any],
+    compiled_identities: set[str],
+) -> tuple[list[tuple[NoteDocument, list[dict[str, Any]]]], list[str]]:
+    """Overlay selected compiled documents on a complete published catalog.
 
+    Aggregate book and chapter builds contain labels owned by smaller documents.
+    When that smaller owner was not rebuilt, keep its published PDF address while
+    accepting refreshed canonical numbering from an aggregate build.
+    """
+    previous = validate_catalog(previous, expected_repository=data["book"]["id"])
+    all_documents, occurrences, missing = reference_occurrences(
+        data, compiled_identities
+    )
+    by_identity = {document.identity: document for document in all_documents}
+    unknown = sorted(compiled_identities - by_identity.keys())
+    if unknown:
+        fail("Unknown compiled document IDs: " + ", ".join(unknown))
 
-def aux_line(record: dict[str, Any]) -> str:
+    previous_by_label: dict[str, tuple[NoteDocument, dict[str, Any]]] = {}
+    for catalog_document in previous["documents"]:
+        owner = by_identity.get(catalog_document["id"])
+        # A document removed from notes.json is intentionally removed from the
+        # next catalog as well.
+        if owner is None:
+            continue
+        for record in catalog_document["labels"]:
+            previous_by_label[record["label"]] = (owner, dict(record))
+
+    merged: dict[str, tuple[NoteDocument, dict[str, Any]]] = {
+        label: (owner, record)
+        for label, (owner, record) in previous_by_label.items()
+        if owner.identity not in compiled_identities
+    }
+    for label in sorted(occurrences):
+        prior = previous_by_label.get(label)
+        if prior is not None and prior[0].identity not in compiled_identities:
+            _, combined = combine_reference_occurrences(
+                label, occurrences[label], address_record=prior[1]
+            )
+            owner = prior[0]
+        else:
+            owner, combined = combine_reference_occurrences(
+                label, occurrences[label]
+            )
+        merged[label] = (owner, combined)
+
+    grouped: dict[str, tuple[NoteDocument, list[dict[str, Any]]]] = {}
+    for label in sorted(merged):
+        owner, record = merged[label]
+        entry = grouped.setdefault(owner.identity, (owner, []))
+        entry[1].append(record)
+    order = {document.identity: index for index, document in enumerate(all_documents)}
     return (
-        f"\\newlabel{{{record['label']}}}"
-        f"{{{{{record['number']}}}{{{record['page']}}}{{}}"
-        f"{{{record['anchor']}}}{{}}}}"
+        sorted(grouped.values(), key=lambda item: order[item[0].identity]),
+        missing,
     )
 
 
-def xref_line(record: dict[str, Any]) -> str:
+def catalog_snapshot_path(name: str) -> Path:
+    return CATALOG_DIR / f"{name}.json"
+
+
+def record_shard_path(source: str, identity: str) -> Path:
+    safe_name = identity.replace("/", "--")
+    return RECORDS_DIR / source / f"{safe_name}.tex"
+
+
+def self_catalog_snapshot_path() -> Path:
+    return catalog_snapshot_path("self")
+
+
+def imported_reference_line(
+    record: dict[str, Any], *, label: str, url: str
+) -> str:
+    require_label(label)
+    require_http_url(url, f"public URL for {label}")
     display = tex_escape(record["display"])
     page_display = tex_escape(record["pageDisplay"])
     first = f"[{record['crefType']}][{record['crefCounter']}][]{display}"
     second = f"[page][{record['pageCounter']}][]{page_display}"
     return (
-        f"\\NoteExternalReference{{{record['label']}}}"
+        f"\\NoteImportedReference{{{label}}}"
+        f"{{{{{record['number']}}}{{{record['page']}}}{{}}"
+        f"{{{record['anchor']}}}{{{url}}}}}"
         f"{{{{{first}}}{{{second}}}{{}}{{}}{{}}}}"
     )
 
@@ -678,13 +840,15 @@ def local_reference_record(record: dict[str, Any]) -> dict[str, Any]:
     label_prefix = record["label"].partition(":")[0].strip().lower()
     kind = REFERENCE_KIND_NAMES.get(label_prefix)
     if kind is None:
-        number_pattern = re.escape(record["number"])
-        match = re.search(
-            rf"([A-Z][A-Za-z -]*?)\s+{number_pattern}(?:,|\])",
-            record["display"],
-        )
+        match = None
+        if record["number"]:
+            number_pattern = re.escape(record["number"])
+            match = re.search(
+                rf"([A-Z][A-Za-z -]*?)\s+{number_pattern}(?:,|\])",
+                record["display"],
+            )
         kind = match.group(1).strip() if match else "Reference"
-    display = f"{kind} {record['number']}"
+    display = kind + (f" {record['number']}" if record["number"] else "")
     if record["status"] == "published":
         tag = record.get("tag")
         if not tag:
@@ -694,67 +858,162 @@ def local_reference_record(record: dict[str, Any]) -> dict[str, Any]:
     return local
 
 
-def materialized_document_text(records: list[dict[str, Any]]) -> tuple[str, str]:
-    aux = (
-        "% Generated by manage-references; do not edit.\n"
-        + "\n".join(aux_line(record) for record in records)
-        + "\n"
-    )
-    xref = (
-        "% Generated by manage-references; do not edit.\n"
-        + "\n".join(xref_line(record) for record in records)
-        + "\n"
-    )
-    return aux, xref
+def materialized_document_text(
+    records: list[dict[str, Any]],
+    *,
+    url: str,
+    prefix: str | None = None,
+) -> str:
+    lines = ["% Generated by labels-ref-sync; do not edit."]
+    for record in records:
+        label = record["label"]
+        if prefix is not None:
+            label = f"{prefix}:{label}"
+        lines.append(imported_reference_line(record, label=label, url=url))
+    return "\n".join(lines) + "\n"
 
 
 def materialized_remote_updates(
     remote: RemoteRepository, catalog: dict[str, Any]
-) -> tuple[dict[Path, str], list[tuple[Path, str]]]:
+) -> tuple[dict[Path, str], list[Path]]:
     updates: dict[Path, str] = {}
-    imports: list[tuple[Path, str]] = []
+    imports: list[Path] = []
     for document in catalog["documents"]:
-        base = cache_document_base(remote.prefix, document["id"])
-        records = document["labels"]
-        aux, xref = materialized_document_text(records)
-        updates[base.with_suffix(".aux")] = aux
-        updates[base.with_suffix(".nfm-xref")] = xref
-        imports.append((base, document["url"]))
+        path = record_shard_path(remote.prefix, document["id"])
+        updates[path] = materialized_document_text(
+            document["labels"],
+            url=document["url"],
+            prefix=remote.prefix,
+        )
+        imports.append(path)
     return updates, imports
 
 
 def materialized_local_updates(
     groups: list[tuple[NoteDocument, list[dict[str, Any]]]],
+    urls: dict[str, str],
 ) -> tuple[dict[Path, str], list[tuple[NoteDocument, Path]]]:
     updates: dict[Path, str] = {}
     imports: list[tuple[NoteDocument, Path]] = []
     for document, records in groups:
-        safe_name = document.identity.replace("/", "--")
-        base = CACHE_DIR / "local" / "documents" / safe_name
+        path = record_shard_path("self", document.identity)
         local_records = [local_reference_record(record) for record in records]
-        aux, xref = materialized_document_text(local_records)
-        updates[base.with_suffix(".aux")] = aux
-        updates[base.with_suffix(".nfm-xref")] = xref
-        imports.append((document, base))
+        updates[path] = materialized_document_text(
+            local_records,
+            url=urls[document.identity],
+        )
+        imports.append((document, path))
     return updates, imports
 
 
-def load_cached_remotes(
+def load_self_catalog_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
+    configured = reference_catalog(data)
+    if configured is None:
+        return None
+    path = self_catalog_snapshot_path()
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(read_text(path))
+    except json.JSONDecodeError as error:
+        fail(f"Invalid tracked catalog {relative(path)}: {error}")
+    return validate_catalog(value, expected_repository=data["book"]["id"])
+
+
+def default_public_base_url(data: dict[str, Any]) -> str:
+    return (
+        "https://www.tianleyang.com/"
+        + urllib.parse.quote(data["book"]["id"], safe="-")
+        + "/"
+    )
+
+
+def local_document_urls(
+    data: dict[str, Any], previous: dict[str, Any] | None
+) -> dict[str, str]:
+    base_url = default_public_base_url(data)
+    urls = {
+        document.identity: urllib.parse.urljoin(base_url, document.url)
+        for document in documents(data)
+    }
+    if previous is not None:
+        for document in previous["documents"]:
+            if document["id"] in urls:
+                urls[document["id"]] = document["url"]
+    return urls
+
+
+def effective_local_groups(
+    data: dict[str, Any],
+) -> tuple[
+    list[tuple[NoteDocument, list[dict[str, Any]]]],
+    dict[str, str],
+]:
+    """Return the published self catalog with available local builds overlaid."""
+    previous = load_self_catalog_snapshot(data)
+    urls = local_document_urls(data, previous)
+    if previous is None:
+        all_documents = documents(data)
+        if all(document.aux.is_file() for document in all_documents):
+            groups, _ = owned_reference_records(data, allow_missing=False)
+            return groups, urls
+
+        # Without a published ownership map, a partial chapter/book .aux cannot
+        # distinguish its own labels from labels included from child documents.
+        # Independently compiled sections are the only unambiguous local source.
+        selected = {
+            document.identity
+            for document in all_documents
+            if document.kind == "section" and document.aux.is_file()
+        }
+        _, occurrences, _ = reference_occurrences(data, selected)
+        grouped: dict[str, tuple[NoteDocument, list[dict[str, Any]]]] = {}
+        for label in sorted(occurrences):
+            owner, combined = combine_reference_occurrences(
+                label, occurrences[label]
+            )
+            entry = grouped.setdefault(owner.identity, (owner, []))
+            entry[1].append(combined)
+        order = {
+            document.identity: index
+            for index, document in enumerate(all_documents)
+        }
+        return (
+            sorted(grouped.values(), key=lambda item: order[item[0].identity]),
+            urls,
+        )
+
+    all_documents = documents(data)
+    compiled = {
+        document.identity for document in all_documents if document.aux.is_file()
+    }
+    groups, _ = merge_catalog_with_outputs(data, previous, compiled)
+    return groups, urls
+
+
+def load_tracked_remotes(
     data: dict[str, Any]
-) -> tuple[dict[Path, str], dict[str, list[tuple[Path, str]]]]:
+) -> tuple[dict[Path, str], dict[str, list[Path]]]:
     updates: dict[Path, str] = {}
-    imports: dict[str, list[tuple[Path, str]]] = {}
+    imports: dict[str, list[Path]] = {}
     for remote in remote_repositories(data):
-        path = catalog_cache_path(remote)
+        path = catalog_snapshot_path(remote.prefix)
         if not path.is_file():
+            if remote.download_url is None:
+                print(
+                    f"Warning: external reference '{remote.prefix}' is a "
+                    "placeholder with no downloadUrl; skipping it.",
+                    file=sys.stderr,
+                )
+                continue
             fail(
-                f"External catalog for '{remote.prefix}' is not cached. "
-                f"Run manage-references fetch."
+                f"External catalog for '{remote.prefix}' is not tracked. "
+                f"Run labels-ref-sync fetch."
             )
         try:
             value = json.loads(read_text(path))
         except json.JSONDecodeError as error:
-            fail(f"Invalid cached catalog {relative(path)}: {error}")
+            fail(f"Invalid tracked catalog {relative(path)}: {error}")
         catalog = validate_catalog(value)
         repository_id = catalog["repository"]["id"]
         if repository_id == data["book"]["id"]:
@@ -772,26 +1031,25 @@ def tex_relative(path: Path, start: Path) -> str:
 def target_import_text(
     target: NoteDocument,
     local_imports: list[tuple[NoteDocument, Path]],
-    remote_imports: dict[str, list[tuple[Path, str]]],
+    remote_imports: dict[str, list[Path]],
 ) -> str:
     lines = [
-        "% Generated by manage-references; do not edit.",
+        "% Generated by labels-ref-sync; do not edit.",
         f"% Target: {target.kind} {target.identity}",
     ]
-    for source, base_path in local_imports:
+    for source, path in local_imports:
         if target.kind == "book":
             continue
         if target.kind == "chapter" and source.chapter_id == target.chapter_id:
             continue
         if target.kind == "section" and source.identity == target.identity:
             continue
-        base = tex_relative(base_path, target.wrapper.parent)
-        pdf = tex_relative(source.base.with_suffix(".pdf"), target.wrapper.parent)
-        lines.append(rf"\externalnotedocument{{{base}}}[{pdf}]")
+        source_path = tex_relative(path, target.wrapper.parent)
+        lines.append(rf"\InputIfFileExists{{{source_path}}}{{}}{{}}")
     for prefix in sorted(remote_imports):
-        for base_path, url in remote_imports[prefix]:
-            base = tex_relative(base_path, target.wrapper.parent)
-            lines.append(rf"\externalnotedocument[{prefix}]{{{base}}}[{url}]")
+        for path in remote_imports[prefix]:
+            source_path = tex_relative(path, target.wrapper.parent)
+            lines.append(rf"\InputIfFileExists{{{source_path}}}{{}}{{}}")
     return "\n".join(lines) + "\n"
 
 
@@ -818,9 +1076,9 @@ def wrapper_with_import(wrapper: Path, import_name: str) -> str:
 
 def desired_sync_updates(data: dict[str, Any]) -> dict[Path, str]:
     all_documents = documents(data)
-    groups, _ = owned_reference_records(data, allow_missing=True)
-    updates, local_imports = materialized_local_updates(groups)
-    remote_updates, remote_imports = load_cached_remotes(data)
+    groups, local_urls = effective_local_groups(data)
+    updates, local_imports = materialized_local_updates(groups, local_urls)
+    remote_updates, remote_imports = load_tracked_remotes(data)
     updates.update(remote_updates)
     for target in all_documents:
         updates[target.imports] = target_import_text(
@@ -853,45 +1111,136 @@ def apply_updates(updates: dict[Path, str], *, dry_run: bool, verb: str) -> None
             print(f"Updated {relative(path)}.")
 
 
+def remove_legacy_imports(data: dict[str, Any], *, dry_run: bool) -> None:
+    generated_headers = (
+        "% Generated by manage-references; do not edit.",
+        "% Generated by labels-ref-sync; do not edit.",
+    )
+    for document in documents(data):
+        path = document.legacy_imports
+        if path == document.imports or not path.is_file():
+            continue
+        content = read_text(path)
+        if not content.startswith(generated_headers):
+            fail(
+                f"Refusing to remove non-generated legacy import file: "
+                f"{relative(path)}"
+            )
+        if dry_run:
+            print(f"Would remove legacy generated file {relative(path)}.")
+        else:
+            path.unlink()
+            print(f"Removed legacy generated file {relative(path)}.")
+
+
+def stale_record_shards(updates: dict[Path, str]) -> list[Path]:
+    desired = {path.resolve() for path in updates if RECORDS_DIR in path.parents}
+    if not RECORDS_DIR.is_dir():
+        return []
+    return sorted(
+        path
+        for path in RECORDS_DIR.rglob("*.tex")
+        if path.resolve() not in desired
+    )
+
+
+def remove_stale_record_shards(
+    updates: dict[Path, str], *, dry_run: bool
+) -> None:
+    header = "% Generated by labels-ref-sync; do not edit."
+    for path in stale_record_shards(updates):
+        if not read_text(path).startswith(header):
+            fail(f"Refusing to remove non-generated record shard: {relative(path)}")
+        if dry_run:
+            print(f"Would remove stale generated file {relative(path)}.")
+        else:
+            path.unlink()
+            print(f"Removed stale generated file {relative(path)}.")
+
+
 def sync_command(data: dict[str, Any], dry_run: bool) -> None:
-    apply_updates(desired_sync_updates(data), dry_run=dry_run, verb="synchronization")
+    updates = desired_sync_updates(data)
+    apply_updates(
+        updates,
+        dry_run=dry_run,
+        verb="synchronization",
+    )
+    remove_stale_record_shards(updates, dry_run=dry_run)
+    remove_legacy_imports(data, dry_run=dry_run)
 
 
-def fetch_one(remote: RemoteRepository) -> dict[str, Any]:
+def fetch_catalog(
+    url: str,
+    description: str,
+    *,
+    expected_repository: str | None = None,
+) -> dict[str, Any]:
     request = urllib.request.Request(
-        remote.url,
-        headers={"User-Agent": "manage-references/1"},
+        url,
+        headers={"User-Agent": "labels-ref-sync/1"},
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = response.read(MAX_CATALOG_BYTES + 1)
     except (urllib.error.URLError, TimeoutError) as error:
-        fail(f"Could not download {remote.url}: {error}")
+        raise CatalogUnavailableError(f"Could not download {url}: {error}") from error
     if len(payload) > MAX_CATALOG_BYTES:
-        fail(f"Downloaded catalog for '{remote.prefix}' exceeds 10 MiB.")
+        fail(f"Downloaded catalog for {description} exceeds 10 MiB.")
     try:
         value = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        fail(f"Downloaded catalog for '{remote.prefix}' is invalid JSON: {error}")
-    return validate_catalog(value)
+        fail(f"Downloaded catalog for {description} is invalid JSON: {error}")
+    return validate_catalog(value, expected_repository=expected_repository)
 
 
 def fetch_command(data: dict[str, Any], dry_run: bool) -> None:
+    own = reference_catalog(data)
     remotes = remote_repositories(data)
-    if not remotes:
-        print("No external reference repositories are configured.")
-        sync_command(data, dry_run)
-        return
-    # Validate every response before replacing any cached catalog.
-    downloads = [(remote, fetch_one(remote)) for remote in remotes]
-    for remote, catalog in downloads:
-        path = catalog_cache_path(remote)
+    # Validate every response before replacing any tracked snapshot.
+    downloads: list[tuple[str, str, Path, dict[str, Any]]] = []
+    if own is not None and own.download_url is not None:
+        catalog = fetch_catalog(
+            own.download_url,
+            "this repository",
+            expected_repository=data["book"]["id"],
+        )
+        downloads.append(
+            (
+                "self",
+                own.download_url,
+                self_catalog_snapshot_path(),
+                catalog,
+            )
+        )
+    for remote in remotes:
+        if remote.download_url is None:
+            print(
+                f"Warning: external reference '{remote.prefix}' has no "
+                "downloadUrl; skipping it.",
+                file=sys.stderr,
+            )
+            continue
+        catalog = fetch_catalog(remote.download_url, f"'{remote.prefix}'")
+        downloads.append(
+            (
+                remote.prefix,
+                remote.download_url,
+                catalog_snapshot_path(remote.prefix),
+                catalog,
+            )
+        )
+
+    if own is None and not remotes:
+        print("No published reference catalogs are configured.")
+    elif not downloads:
+        print("No catalog download URLs are configured.")
+    for name, url, path, catalog in downloads:
         content = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
         if dry_run:
-            print(f"Would download {remote.url} to {relative(path)}.")
+            print(f"Would download {url} to {relative(path)}.")
         else:
             atomic_write(path, content)
-            print(f"Downloaded {remote.prefix} references to {relative(path)}.")
+            print(f"Downloaded {name} references to {relative(path)}.")
     if not dry_run:
         sync_command(data, False)
 
@@ -907,11 +1256,79 @@ def git_revision() -> str | None:
     return revision if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", revision) else None
 
 
+def load_catalog_file(path: Path, *, expected_repository: str) -> dict[str, Any]:
+    if not path.is_file():
+        fail(f"Previous reference catalog is missing: {relative(path)}")
+    try:
+        value = json.loads(read_text(path))
+    except json.JSONDecodeError as error:
+        fail(f"Invalid previous reference catalog {relative(path)}: {error}")
+    return validate_catalog(value, expected_repository=expected_repository)
+
+
+def compiled_identities_from_file(
+    data: dict[str, Any], path: Path
+) -> set[str]:
+    if not path.is_file():
+        fail(f"Compiled-document list is missing: {relative(path)}")
+    by_wrapper = {
+        document.wrapper.resolve(): document.identity for document in documents(data)
+    }
+    identities: set[str] = set()
+    for line_number, raw in enumerate(read_text(path).splitlines(), start=1):
+        value = raw.strip()
+        if not value or value.startswith("#"):
+            continue
+        wrapper = Path(value)
+        if not wrapper.is_absolute():
+            wrapper = ROOT / wrapper
+        identity = by_wrapper.get(wrapper.resolve())
+        if identity is None:
+            fail(
+                f"Unknown TeX wrapper in {relative(path)} line {line_number}: "
+                f"{value}"
+            )
+        if identity in identities:
+            fail(f"Duplicate TeX wrapper in {relative(path)}: {value}")
+        identities.add(identity)
+    return identities
+
+
 def release_catalog(
-    data: dict[str, Any], base_url: str, *, allow_missing: bool
+    data: dict[str, Any],
+    base_url: str,
+    *,
+    allow_missing: bool,
+    previous: dict[str, Any] | None = None,
+    compiled_identities: set[str] | None = None,
 ) -> dict[str, Any]:
     require_http_url(base_url, "release base URL")
-    groups, missing = owned_reference_records(data, allow_missing=allow_missing)
+    if previous is None:
+        if compiled_identities is not None:
+            expected = {document.identity for document in documents(data)}
+            if compiled_identities != expected and not allow_missing:
+                absent = sorted(expected - compiled_identities)
+                fail(
+                    "A partial release requires --previous. Documents absent "
+                    "from the first build: "
+                    + ", ".join(absent)
+                )
+        groups, missing = owned_reference_records(data, allow_missing=allow_missing)
+    else:
+        if compiled_identities is None:
+            compiled_identities = {
+                document.identity
+                for document in documents(data)
+                if document.aux.is_file()
+            }
+        groups, missing = merge_catalog_with_outputs(
+            data, previous, compiled_identities
+        )
+        if missing and not allow_missing:
+            fail(
+                "Selected documents have no compiled reference output: "
+                + ", ".join(missing)
+            )
     released_documents: list[dict[str, Any]] = []
     for document, records in groups:
         released_documents.append(
@@ -941,13 +1358,32 @@ def release_catalog(
 
 
 def release_command(args: argparse.Namespace, data: dict[str, Any]) -> None:
-    base_url = args.base_url or (
-        "https://www.tianleyang.com/"
-        + urllib.parse.quote(data["book"]["id"], safe="-")
-        + "/"
+    configured_catalog = reference_catalog(data)
+    base_url = args.base_url or default_public_base_url(data)
+    previous = None
+    if args.previous:
+        previous = load_catalog_file(
+            ROOT / args.previous,
+            expected_repository=data["book"]["id"],
+        )
+    compiled_identities = None
+    if args.documents_file:
+        compiled_identities = compiled_identities_from_file(
+            data, ROOT / args.documents_file
+        )
+    catalog = release_catalog(
+        data,
+        base_url,
+        allow_missing=args.allow_missing,
+        previous=previous,
+        compiled_identities=compiled_identities,
     )
-    catalog = release_catalog(data, base_url, allow_missing=args.allow_missing)
-    output = ROOT / args.output
+    output_name = (
+        args.output
+        or (configured_catalog.file if configured_catalog is not None else CATALOG_NAME)
+    )
+    require_repository_path(output_name, "release output")
+    output = ROOT / output_name
     content = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
     if args.dry_run:
         label_count = sum(len(item["labels"]) for item in catalog["documents"])
@@ -958,19 +1394,28 @@ def release_command(args: argparse.Namespace, data: dict[str, Any]) -> None:
 
 
 def validate_command(data: dict[str, Any]) -> None:
-    changes = changed_updates(desired_sync_updates(data))
-    if changes:
+    updates = desired_sync_updates(data)
+    changes = changed_updates(updates)
+    stale = stale_record_shards(updates)
+    legacy = [
+        document.legacy_imports
+        for document in documents(data)
+        if document.legacy_imports != document.imports
+        and document.legacy_imports.is_file()
+    ]
+    unsynchronized = list(changes) + stale + legacy
+    if unsynchronized:
         fail(
             "Generated reference files are not synchronized: "
-            + ", ".join(relative(path) for path in changes)
-            + ". Run manage-references sync."
+            + ", ".join(relative(path) for path in unsynchronized)
+            + ". Run labels-ref-sync sync."
         )
     print("Reference configuration and generated import files are valid.")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="manage-references",
+        prog="labels-ref-sync",
         description=(
             "Generate per-document LaTeX imports and exchange cross-repository "
             "reference catalogs."
@@ -981,12 +1426,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser(
-        "sync", help="regenerate local, cached, and per-document reference files"
+        "sync", help="regenerate tracked records and per-document reference files"
     )
-    subparsers.add_parser(
+    fetch = subparsers.add_parser(
         "fetch", help="download configured repository catalogs and synchronize"
     )
-    subparsers.add_parser(
+    update = subparsers.add_parser(
         "update", help="alias for fetch: download catalogs and synchronize"
     )
     subparsers.add_parser(
@@ -1003,12 +1448,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     release.add_argument(
-        "--output", default=CATALOG_NAME, help=f"output path (default: {CATALOG_NAME})"
+        "--output",
+        help=(
+            "output path (default: referenceCatalog.file, or "
+            f"{CATALOG_NAME})"
+        ),
     )
     release.add_argument(
         "--allow-missing",
         action="store_true",
         help="skip documents without compiled .aux files (not recommended for publication)",
+    )
+    release.add_argument(
+        "--previous",
+        help="published catalog used as the baseline for an incremental release",
+    )
+    release.add_argument(
+        "--documents-file",
+        help="newline-separated TeX wrappers compiled by this build",
     )
     return parser
 

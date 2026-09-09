@@ -1214,6 +1214,15 @@
 \NewDocumentCommand \NoteExternalReference { m m }
   { \nfm_external_reference:nn {#1} {#2} }
 
+\cs_new_protected:Npn \nfm_imported_reference:nnn #1#2#3
+  {
+    \cs_gset:cpn { r@#1 } {#2}
+    \cs_gset:cpn { r@#1@cref } {#3}
+  }
+
+\NewDocumentCommand \NoteImportedReference { m m m }
+  { \nfm_imported_reference:nnn {#1} {#2} {#3} }
+
 \NewDocumentCommand \externalnotedocument { O{} m O{} }
   {
     \tl_if_blank:nTF {#1}

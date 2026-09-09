@@ -104,8 +104,12 @@ Known areas to revisit:
 | 2026-09-09 | Global uniqueness and duplicate-use validation belong to an external tool rather than the LaTeX class. | The authority spans repositories and is easier to maintain outside TeX. | The current class validates each published entry against a loaded registry, while allocation tooling is deferred to the next step. |
 | 2026-09-09 | Published chapters, sections, and subsections display their tags and include them in local and external `\cref` output. | Structural locations are themselves useful stable reference targets. | Their metadata syntax mirrors theorem metadata, while subsection metadata does not change the section status inherited by entries. |
 | 2026-09-09 | Every repository releases a self-contained cross-reference export containing labels, display records, and public target URLs. | Consumers should not need the source repository's build tree or reconstruct its website routes. | A release script combines TeX metadata with the repository manifest and writes canonical per-label URLs. |
-| 2026-09-09 | Cross-document reference management is a separate root-level `manage-references` program rather than part of `manage-notes`. | Reference exchange has its own lifecycle and should remain independently usable. | The program owns synchronization, catalog download, release, and validation commands. |
+| 2026-09-09 | Cross-document reference management is a separate root-level `labels-ref-sync` program rather than part of `manage-notes`. | Reference exchange has its own lifecycle and should remain independently usable. | The program owns synchronization, catalog download, release, and validation commands. |
 | 2026-09-09 | A released label links to its smallest compiled owner, normally a section PDF, but uses numbering from the full book build when available. | Section PDFs need valid local anchors while citations should retain canonical book numbering. | The generated record combines address fields from the owner build with display fields from the aggregate build. |
+| 2026-09-09 | Locally fetched, Git-tracked catalog snapshots are the build baseline for same-repository and cross-repository references. | A local checkout does not compile every independent document, while CI should not depend on downloading mutable label state. | `fetch` updates `label-references/catalogs/`; `sync` writes tracked record shards and wrapper imports; local outputs overlay documents that are actually compiled. |
+| 2026-09-09 | Incremental CI catalog publication merges rebuilt documents into the tracked self snapshot and performs no fetch or sync. | Requiring every document to compile or downloading catalogs during every deployment would complicate the existing incremental PDF workflow. | Removed labels disappear from rebuilt owners, unchanged owners remain available, and a missing self snapshot forces a full first build. |
+| 2026-09-09 | The synchronizer is named `labels-ref-sync`, and every wrapper imports a nearby file named `external-labels.tex`. | `manage-references` was easily confused with `manage-notes`, while wrapper-derived generated filenames were unnecessarily long. | Existing managed wrapper blocks and generated import files are migrated during synchronization. |
+| 2026-09-09 | Catalog artifact names and download locations are separate manifest fields. | A GitHub Release asset or Pages URL may change without changing the public PDF route. | `referenceCatalog.file` selects the release output; self and external `downloadUrl` values are used only by local `fetch`, and an empty external value is an inactive placeholder. |
 
 ## Open Design Questions
 
@@ -257,7 +261,7 @@ Likely division of responsibility:
 | Generated TeX index | Lets the class check registered tags during compilation |
 | Generated `.nfm-xref` file | Supplies publication-aware `cleveref` display metadata alongside each compiled `.aux` file |
 | Released `external-labels.json` | Exports validated labels, display records, tags, owning-document URLs, and PDF anchors |
-| `manage-references` | Synchronizes local imports, downloads namespaced catalogs, creates releases, and detects duplicate source labels |
+| `labels-ref-sync` | Synchronizes local imports, downloads namespaced catalogs, creates releases, and detects duplicate source labels |
 | Future tag-registry tool | Allocates global tags and fails publication on global tag conflicts or invalid retirement records |
 
 Open question for the next step: should the canonical registry live in this
@@ -303,7 +307,7 @@ The prototype keeps the ordinary compact record in `.aux` and writes a generated
 imports both, so authors continue to use `\cref` directly with namespaced source
 labels.
 
-The first `manage-references release` implementation combines three inputs:
+The first `labels-ref-sync release` implementation combines three inputs:
 
 1. the generated label and `cleveref` metadata;
 2. the repository manifest's base URL and chapter/section routes;
@@ -481,9 +485,9 @@ pages before choosing defaults.
   XeLaTeX mode (`-xelatex`). No class change is needed; editor/generator changes
   should be made together after approval.
 
-### 2026-09-09 — First reference manager implemented
+### 2026-09-09 — First label-reference synchronizer implemented
 
-- Added the executable root-level `manage-references`, independent of
+- Added the executable root-level `labels-ref-sync`, independent of
   `manage-notes`.
 - Added `sync` to generate a reference input beside every book, chapter, and
   section wrapper. A target excludes its own labels and any labels already
@@ -502,8 +506,35 @@ pages before choosing defaults.
   reserving the book-qualified bracketed form for cross-repository imports.
 - Added `validate`, strict missing-output checks for publication, repository-wide
   duplicate-label detection, atomic writes/download replacement, and a
-  four-scenario automated test suite.
+  reference-manager automated test suite.
 - Verified the workflow against a temporary copy of
   `algebras-toward-algebraic-geometry`: a same-repository `\cref` opened the
   sibling section PDF, and a namespaced remote `\cref` opened the public section
   URL with its named PDF destination.
+
+### 2026-09-09 — Tracked published catalogs made authoritative
+
+- Added `referenceCatalog.file` for the released artifact and a separate
+  `referenceCatalog.downloadUrl` used only by local pulls. External repository
+  entries likewise use `downloadUrl`, which may be empty while still a
+  placeholder.
+- Changed `fetch` to download and validate the self catalog without a
+  namespace, alongside namespaced external repositories, then save snapshots
+  under the tracked `label-references/catalogs/` tree.
+- Kept per-target filtering: sections omit themselves, chapters omit their own
+  chapter tree, and books omit their entire repository.
+- Added a local overlay for compiled documents while retaining downloaded data
+  for every uncompiled document.
+- Materialized each catalog owner once under `label-references/records/`; every
+  nearby `external-labels.tex` now imports the allowed shards instead of
+  duplicating label records.
+- Added incremental `release --previous --documents-file` merging so GitHub
+  Actions can replace rebuilt owners, remove deleted labels, and retain all
+  untouched records.
+- Renamed the executable to `labels-ref-sync` and shortened every per-directory
+  generated import filename to `external-labels.tex`.
+- Updated the algebra repository's Pages workflow to compile and release only.
+  Catalog download, synchronization, and generated-file updates are explicit
+  local steps whose results are committed.
+- Kept each released source label exactly once, including safe support for
+  existing unnumbered semantic environments such as `slogan`.
