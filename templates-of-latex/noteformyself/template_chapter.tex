@@ -1,52 +1,195 @@
-\documentclass[sectionlevel=chapter]{noteformyself}
+% !TeX program = xelatex
+% Complete chapter-mode example for noteformyself 2.0.
+\documentclass[sectionlevel=chapter,status=draft]{noteformyself}
 
-\input{../Accessories/notation.tex}             % 加载符号定义文件
-\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
-
-
-\title{Template for the class ``Note for Myself'' in sectionlevel=chapter}
+% -----------------------------------------------------------------------------
+% Chapter metadata and image cover
+% -----------------------------------------------------------------------------
+\title{A Chapter-Level Note with a Deliberately Long Explanatory Title}
 \author{Tianle Yang}
 \date{\today}
-\authorpage{\href{www.example.com}{My Homepage}}
+\coversentence{Geometry becomes clearer when the structure can breathe.}
+\coverimage{placeholder.jpg}
+\version{2.0.0}
 
-% available on the mode "\sectionlevel=chapter" or "\sectionlevel=book".
-\setCJKfamilyfont{lxgwwenkai}{LXGW WenKai} % 定义霞鹜文楷，若未安装，请去掉相关代码编译或使用其他字体
-\coversentence{\CJKfamily{lxgwwenkai}阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴阿巴!}
-\coverimage{placeholder.jpg} % 封面图片
-\covertitlefont{Allura} % 封面标题字体, 若未安装，请去掉相关代码编译或使用其他字体
-% \coverlinecolor{red} % 封面线条颜色
-% \covertextcolor{green} % 封面文字颜色
+% -----------------------------------------------------------------------------
+% Tag context
+% -----------------------------------------------------------------------------
+\LoadNoteTagRegistry{tag-registry.example.tex}
+\notesetup{
+  book={Tag System Test Book},
+  book-tag=0,
+  chapter-tag=0CH,
+  status=draft
+}
 
 \begin{document}
 
-    \maketitle
+\maketitle
+\tableofcontents
 
-    \tableofcontents % 生成目录
+% =============================================================================
+% A published section and subsection
+% =============================================================================
+\section[
+  status=published,
+  tag=0CH01,
+  label=sec:chapter-preview
+]{Published chapter material}
 
-    \input{text.tex} % 这里是正文
+\begin{theorem}[
+  title={A small test theorem},
+  status=published,
+  tag=0CH0101,
+  label=thm:chapter-preview
+]
+  A quiet page can retain a strong hierarchy and a permanent identity.
+\end{theorem}
 
-        \subsection{sectionlevel=section}
+\subsection[
+  status=published,
+  tag=0CH0102,
+  label=subsec:chapter-preview
+]{A tagged subsection}
 
-        In this mode, the section is the highest level, and usually there are more than one section in the document. 
-        This is a title page.
-        All theorem and definition environments are labelled in the form of section.number, such as 1.1, 1.2, etc.
+The compact references are \cref{sec:chapter-preview},
+\cref{subsec:chapter-preview}, and \cref{thm:chapter-preview}.
 
-        Test references \cite{Har77}.
+% =============================================================================
+% Every theorem-style environment
+% =============================================================================
+\section[
+  short-title={Environment gallery},
+  status=draft,
+  tag=0CH02,
+  label=sec:chapter-gallery
+]{Draft environment gallery}
 
+\subsection[tag=0CH0201,label=subsec:chapter-gallery]{Statements and proofs}
 
-    \section{Test Section}
+\begin{slogan}
+  A template should make the mathematical hierarchy visible at a glance.
+\end{slogan}
 
-        \subsection{Test Subsection}
+\begin{mainthm}[title={Chapter comparison},label=mainthm:chapter]
+  The three compilation modes share one statement vocabulary.
+\end{mainthm}
 
-        Test plots:
+\begin{definition}[title={Affine spectrum},label=def:chapter]
+  For a ring \(A\), the space \(\operatorname{Spec}(A)\) consists of its prime
+  ideals with the Zariski topology and its structure sheaf.
+\end{definition}
 
-        \begin{figure}[htbp]
-            \begin{center}
-                \input{drawing-1.tex}
-            \end{center}
-        \end{figure}
+\begin{proposition}[label=prop:chapter]
+  The inverse image of a basic open set under a morphism of affine schemes is
+  basic open.
+\end{proposition}
 
-        There are some test texts here, and some test equations:
+\begin{lemma}[title={Localization test},label=lem:chapter]
+  Localization commutes with finite colimits of modules.
+\end{lemma}
 
-    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+\begin{corollary}[label=cor:chapter]
+  A localization of a finitely presented module is finitely presented.
+\end{corollary}
+
+\begin{conjecture}[label=conj:chapter]
+  The comparison remains true after replacing schemes by suitable stacks.
+\end{conjecture}
+
+\begin{question}[title={Minimal hypotheses},label=ques:chapter]
+  Which finiteness assumption is actually used in the argument?
+\end{question}
+
+\begin{example}[tag=0CH0202,label=eg:chapter]
+  The affine line is \(\mathbb{A}^1_k=\operatorname{Spec}(k[t])\). The displayed
+  draft tag is provisional and is absent from \cref{eg:chapter}.
+\end{example}
+
+\begin{exercise}[label=ex:chapter]
+  Compute the standard-open cover of \(\mathbb{P}^1_k\).
+\end{exercise}
+
+\begin{construction}[title={Gluing two affine lines},label=constr:chapter]
+  Glue \(\operatorname{Spec}(k[t])\) and \(\operatorname{Spec}(k[t^{-1}])\)
+  along \(\operatorname{Spec}(k[t,t^{-1}])\).
+\end{construction}
+
+\begin{notation}[label=not:chapter]
+  Denote the resulting scheme by \(\mathbb{P}^1_k\).
+\end{notation}
+
+\begin{remark}[title={About draft references},label=rmk:chapter]
+  Draft references display only the current type and number.
+\end{remark}
+
+\begin{proof}[Proof of \cref{mainthm:chapter}]
+  Each mode installs the same public environments.
+
+  \begin{step}[Compare counters]\label{step:chapter-counter}
+    Ordinary statements share one counter; \texttt{mainthm} uses letters.
+  \end{step}
+
+  \begin{claim}[label=claim:chapter]
+    The visual style does not alter the underlying amsthm semantics.
+  \end{claim}
+
+  \begin{case}[Book or chapter mode]\label{case:chapter-numbered}
+    Statement numbers reset within sections.
+  \end{case}
+
+  \begin{case}[Section mode]\label{case:chapter-standalone}
+    Statement numbers use a single local sequence.
+  \end{case}
+\end{proof}
+
+The gallery supports references to \cref{def:chapter}, \cref{prop:chapter},
+\cref{lem:chapter}, and \cref{cor:chapter}, together with
+\cref{claim:chapter}, \cref{step:chapter-counter}, and
+\cref{case:chapter-numbered}.
+
+% =============================================================================
+% Mathematics, diagrams, lists, and code
+% =============================================================================
+\subsection[tag=0CH0203,label=subsec:chapter-features]{Typesetting features}
+
+The text font is Libertinus Serif, headings use Libertinus Sans, and source-like
+material uses Source Code Pro. Mathematics uses STIX Two with a distinct script
+alphabet and Libertinus blackboard bold:
+\[
+  \mathcal{O}_X(1),\qquad
+  \mathscr{H}^{i}(\mathscr{F}),\qquad
+  \mathbb{P}^{n}_{k},\qquad
+  \mathfrak{gl}(V),\qquad
+  \mathbf{R}\!\operatorname{Hom}_{X}(E,F).
+\]
+
+\[
+\begin{tikzcd}
+  \operatorname{Spec}(B) \arrow[r] \arrow[d] & \operatorname{Spec}(A) \arrow[d] \\
+  Y \arrow[r] & X
+\end{tikzcd}
+\]
+
+\begin{enumerate}
+  \item A first chapter-level task.
+  \item A task with two parts.
+    \begin{enumerate}
+      \item establish the local claim;
+      \item glue the local results.
+    \end{enumerate}
+\end{enumerate}
+
+\begin{lstlisting}[
+  language=Python,
+  caption={A chapter-level code example},
+  label=lst:chapter-example
+]
+def sections(chapter):
+    return sorted(chapter.sections, key=lambda item: item.order)
+\end{lstlisting}
+
+See \cref{lst:chapter-example}. The draft structural reference
+\cref{sec:chapter-gallery} omits its provisional tag.
+
 \end{document}

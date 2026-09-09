@@ -1,29 +1,187 @@
-\documentclass{noteformyself}
+% !TeX program = xelatex
+% Complete section-mode example for noteformyself 2.0.
+\documentclass[sectionlevel=section,status=draft]{noteformyself}
 
-\input{../Accessories/notation.tex}             % 加载符号定义文件
-\addbibresource{../Accessories/ref.bib}            % 添加参考文献文件
-
-
-\title{Template for the class ``Note for Myself'' in sectionlevel=section}
-\author{The author}
+% Section mode prints only this compact author/date line; it has no cover.
+\title{A Standalone Section}
+\author{Tianle Yang}
 \date{\today}
-\authorpage{\href{www.example.com}{My Homepage}}
+\version{2.0.0}
 
+\LoadNoteTagRegistry{tag-registry.example.tex}
+\notesetup{
+  book={Tag System Test Book},
+  book-tag=0,
+  chapter-tag=0SE,
+  status=draft
+}
 
 \begin{document}
 
-    \maketitle
+\maketitle
 
-    % \tableofcontents % 生成目录
+% =============================================================================
+% Published section example
+% =============================================================================
+\section[
+  status=published,
+  tag=0SE01,
+  label=sec:section-preview
+]{A published standalone section}
 
-    \input{text.tex} % 这里是正文
+\begin{definition}[
+  title={Readable typography},
+  status=published,
+  tag=0SE0101,
+  label=def:section-preview
+]
+  A template is readable when its visual hierarchy supports the mathematics
+  without competing with it.
+\end{definition}
 
-    \subsection{sectionlevel=section}
+The local references are \cref{sec:section-preview} and
+\cref{def:section-preview}.
 
-    In this mode, the section is the highest level, and usually there is only one section in the document. 
-    There is no title page, no table of contents, and no cover image.
-    All theorem and definition environments are labelled with a unique number, and the numbering is continuous throughout the document.
+\subsection[
+  status=published,
+  tag=0SE0102,
+  label=subsec:section-preview
+]{A tagged subsection}
 
+Section mode uses a centered page number and no header or footer rules.
 
-    \printbibliography[heading=bibintoc, title={References}] % 打印参考文献
+% =============================================================================
+% Complete environment gallery
+% =============================================================================
+\section[
+  status=draft,
+  tag=0SE02,
+  label=sec:section-gallery
+]{A draft environment gallery}
+
+\subsection[tag=0SE0201,label=subsec:section-gallery]{Every statement style}
+
+\begin{slogan}
+  Short independently compiled sections should still share the book's voice.
+\end{slogan}
+
+\begin{mainthm}[title={Standalone coherence},label=mainthm:section]
+  A standalone section can use the same source as its chapter and book builds.
+\end{mainthm}
+
+\begin{definition}[label=def:section-draft]
+  A chain complex is a sequence \((C_n,d_n)\) with
+  \(d_{n-1}\circ d_n=0\).
+\end{definition}
+
+\begin{proposition}[title={Cycles modulo boundaries},label=prop:section]
+  The quotient \(\ker d_n/\operatorname{im}d_{n+1}\) is an abelian group.
+\end{proposition}
+
+\begin{theorem}[label=thm:section]
+  A short exact sequence of complexes induces a long exact sequence in
+  homology.
+\end{theorem}
+
+\begin{lemma}[title={Connecting map},label=lem:section]
+  The connecting morphism is independent of the chosen lift.
+\end{lemma}
+
+\begin{corollary}[label=cor:section]
+  A quasi-isomorphism induces isomorphisms on every homology group.
+\end{corollary}
+
+\begin{conjecture}[label=conj:section]
+  An analogous statement holds in the intended derived enhancement.
+\end{conjecture}
+
+\begin{question}[title={Naturality},label=ques:section]
+  How does the connecting map vary with a morphism of short exact sequences?
+\end{question}
+
+\begin{example}[tag=0SE0202,label=eg:section]
+  The complex concentrated in degree zero recovers an ordinary module. Its
+  displayed draft tag does not appear in \cref{eg:section}.
+\end{example}
+
+\begin{exercise}[label=ex:section]
+  Write down the connecting map and verify that it is a homomorphism.
+\end{exercise}
+
+\begin{construction}[title={Mapping cone},label=constr:section]
+  For \(f\colon C_\bullet\to D_\bullet\), set
+  \(\operatorname{Cone}(f)_n=D_n\oplus C_{n-1}\) with the usual differential.
+\end{construction}
+
+\begin{notation}[label=not:section]
+  Write \(H_n(C_\bullet)\) for the \(n\)-th homology group.
+\end{notation}
+
+\begin{remark}[title={Shared numbering},label=rmk:section]
+  Every ordinary theorem-like environment participates in one local sequence.
+\end{remark}
+
+\begin{proof}[Proof sketch of \cref{thm:section}]
+  Lift a cycle, apply the differential, and descend the resulting boundary.
+
+  \begin{step}[Choose a lift]\label{step:section-lift}
+    Select a representative in the middle complex.
+  \end{step}
+
+  \begin{claim}[label=claim:section]
+    Changing the lift changes the result by a boundary.
+  \end{claim}
+
+  \begin{case}[The class is zero]\label{case:section-zero}
+    Choose a boundary representative and compute directly.
+  \end{case}
+
+  \begin{case}[The class is arbitrary]\label{case:section-general}
+    Subtract two lifts and reduce to the first case.
+  \end{case}
+\end{proof}
+
+References include \cref{mainthm:section}, \cref{thm:section},
+\cref{lem:section}, \cref{claim:section}, \cref{step:section-lift}, and
+\cref{case:section-zero}. Draft structural references such as
+\cref{sec:section-gallery} and \cref{subsec:section-gallery} omit tags.
+
+% =============================================================================
+% Compact feature preview
+% =============================================================================
+\subsection[tag=0SE0203,label=subsec:section-features]{Mathematics and code}
+
+Inline mathematics remains calm in prose:
+\(\mathcal{L}\otimes\mathscr{F}\in D^b(X)\) and
+\(\mathfrak{m}_x/\mathfrak{m}_x^2\cong\mathbb{A}^n_k\).
+The same notation works in a labeled display:
+\begin{equation}\label{eq:section-complex}
+  \cdots \longrightarrow C_{n+1}
+  \xrightarrow{d_{n+1}} C_n
+  \xrightarrow{d_n} C_{n-1}
+  \longrightarrow \cdots .
+\end{equation}
+
+\[
+\begin{tikzcd}
+  0 \arrow[r] & A_\bullet \arrow[r] \arrow[d]
+    & B_\bullet \arrow[r] \arrow[d]
+    & C_\bullet \arrow[r] \arrow[d] & 0 \\
+  0 \arrow[r] & A'_\bullet \arrow[r]
+    & B'_\bullet \arrow[r]
+    & C'_\bullet \arrow[r] & 0
+\end{tikzcd}
+\]
+
+\begin{lstlisting}[
+  language=Python,
+  caption={A tiny section-level listing},
+  label=lst:section-example
+]
+def homology(cycles, boundaries):
+    return cycles.quotient(boundaries)
+\end{lstlisting}
+
+See \cref{eq:section-complex} and \cref{lst:section-example}.
+
 \end{document}

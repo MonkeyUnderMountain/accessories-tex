@@ -1,4 +1,4 @@
-% Example external registry for template_book.tex.
+% Example external registry for the book, chapter, and section templates.
 % Active tags carry stable hierarchy, type, and source-label metadata.
 
 \DeclarePublishedTag{
@@ -39,6 +39,26 @@
   book={Tag System Test Book},
   type=proposition,
   label=prop:published-in-draft
+}
+
+\DeclarePublishedTag{
+  tag=0CH0101,
+  book-tag=0,
+  chapter-tag=0CH,
+  section-tag=0CH01,
+  book={Tag System Test Book},
+  type=theorem,
+  label=thm:chapter-preview
+}
+
+\DeclarePublishedTag{
+  tag=0SE0101,
+  book-tag=0,
+  chapter-tag=0SE,
+  section-tag=0SE01,
+  book={Tag System Test Book},
+  type=definition,
+  label=def:section-preview
 }
 
 % Retired records keep their last published number and point to one active

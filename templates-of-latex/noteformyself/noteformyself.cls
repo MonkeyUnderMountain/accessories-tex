@@ -1,27 +1,37 @@
-% 自定义文档类：noteformyself
-% by Tianle Yang
+% noteformyself --- a document class for personal mathematical notes
+% Maintainer: Tianle Yang
 % !TeX program = xelatex
 % !Bib program = biber
 % !TEX encoding = UTF-8 Unicode
-\ProvidesClass{noteformyself}[2026/09/09, v 1.2.0, for notes to myself]
+\ProvidesClass{noteformyself}[2026/09/10 v1.99 personal mathematical notes]
 
+% Public interface at a glance:
+%   Class options: sectionlevel=book|chapter|section, status=draft|published
+%   Scope setup:   \notesetup{book,book-tag,chapter-tag,section-tag,status}
+%   Metadata:      \authoremail, \authorpage, \citationkey, \noteurl,
+%                  \coversentence, \coverimage, \texsource, \version
+%   Tag registry:  \LoadNoteTagRegistry, \DeclarePublishedTag,
+%                  \DeclareRetiredTag, \NoteTagRecord
+%   References:    \externalnotedocument, \NoteExternalReference,
+%                  \NoteImportedReference
 
-% 加载条件判断包（在使用\ifdefstring之前）
-\RequirePackage{etoolbox}
-
-% 定义类选项
-\RequirePackage{kvoptions}
+% =============================================================================
+% Class options and base class
+% =============================================================================
+% Select the standard class and establish the two public class options before
+% any layout or content package is loaded.
+\RequirePackage{etoolbox} % String tests and empty-value conditionals.
+\RequirePackage{kvoptions} % Key-value class options with a private prefix.
 \SetupKeyvalOptions{
   family=noteformyself,
   prefix=noteformyself@
 }
 
-% 定义sectionlevel选项
 \DeclareStringOption[section]{sectionlevel}
-% 当前编译范围的发布状态；可用 \notesetup 在文档中按 section 改写。
+% \notesetup may override the current publication scope inside the document.
 \DeclareStringOption[draft]{status}
 
-% 处理未知选项，传递给基础文档类
+% Forward unknown options to the selected standard class.
 \DeclareDefaultOption{%
   \edef\@sectionlevel{\noteformyself@sectionlevel}%
   \ifdefstring{\@sectionlevel}{book}{%
@@ -31,164 +41,150 @@
   }%
 }
 
-% 处理选项
 \ProcessKeyvalOptions*
 
-% 根据sectionlevel选项加载相应的基础文档类
 \makeatletter
 \edef\@sectionlevel{\noteformyself@sectionlevel}
 \ifdefstring{\@sectionlevel}{book}{%
-  \LoadClass[12pt]{book} % 基础文档类（book）
+  \LoadClass[12pt]{book}
 }{%
-  \LoadClass[12pt]{article} % 基础文档类（article）
+  \LoadClass[12pt]{article}
 }%
 \makeatother
 
-%--------------------------------------------------------------------------
-% 页面布局配置
-%--------------------------------------------------------------------------
+% =============================================================================
+% Page geometry and core packages
+% =============================================================================
+% Book builds reserve slightly more room for running heads; chapter and section
+% builds share a compact article layout. All modes use an A4 text block.
 \makeatletter
 \edef\@sectionlevel{\noteformyself@sectionlevel}
-\RequirePackage{geometry}
+\RequirePackage{geometry} % Shared A4 page dimensions for all three modes.
 \ifdefstring{\@sectionlevel}{book}{%
-  % book模式页面设置
   \geometry{
     a4paper,
-    top=58pt,
+    top=50pt,
+    bottom=36pt,
+    left=36pt,
+    right=36pt,
+    headheight=14pt,
+    includefoot,
+    footskip=14pt
+  }
+}{%
+  \geometry{
+    a4paper,
+    top=36pt,
     bottom=36pt,
     left=36pt,
     right=36pt,
     includefoot,
-    footskip=0pt
-  }
-}{%
-  % 其他模式页面设置
-  \geometry{
-    a4paper,
-    top=63pt,
-    bottom=36pt,
-    left=36pt,
-    right=36pt,
-    includefoot,
-    footskip=0pt
+    footskip=14pt
   }
 }%
 \makeatother
 
-\renewcommand{\baselinestretch}{1.2} % 行距1.2倍
+\renewcommand{\baselinestretch}{1.2}
 
+% Core content support. These packages are loaded by the class so individual
+% note files can focus on mathematical content rather than boilerplate.
+\RequirePackage{graphicx} % Cover images and ordinary included graphics.
+\RequirePackage{longtable} % Multipage tables.
+\RequirePackage{amsmath,amsthm,amssymb,amsfonts} % Mathematics and theorems.
+\RequirePackage[dvipsnames]{xcolor} % Named colors used by boxes and links.
+\RequirePackage{tikz} % Cover drawing and general vector graphics.
+\RequirePackage{tikz-cd} % TikZ-based commutative diagrams.
+\RequirePackage{mathtools} % Extensions and corrections for amsmath.
+\RequirePackage[scheme=plain]{ctex} % CJK typesetting without a preset theme.
+\RequirePackage{fontspec} % OpenType text-font selection under XeLaTeX.
 
+% =============================================================================
+% Text and mathematics fonts
+% =============================================================================
+% Open-source text families included in TeX Live.
+\IfFontExistsTF{Libertinus Serif}{\setmainfont{Libertinus Serif}}{}
+\IfFontExistsTF{Libertinus Sans}{\setsansfont{Libertinus Sans}}{}
+\IfFontExistsTF{SourceCodePro-Regular.otf}{%
+  \setmonofont{SourceCodePro-Regular.otf}[
+    BoldFont=SourceCodePro-Bold.otf,
+    ItalicFont=SourceCodePro-RegularIt.otf,
+    BoldItalicFont=SourceCodePro-BoldIt.otf,
+    Scale=MatchLowercase
+  ]%
+}{%
+  \IfFontExistsTF{Libertinus Mono}{\setmonofont{Libertinus Mono}}{}%
+}
 
-
-%--------------------------------------------------------------------------
-% 警告过滤配置（抑制常见编译警告）
-%--------------------------------------------------------------------------
-\RequirePackage{silence}
-\WarningFilter{fancyhdr}{\headheight is too small}  % 抑制页眉高度警告
-\WarningFilter{fancyhdr}{\footheight is too small}  % 抑制页脚高度警告
-\WarningFilter{fancyhdr}{\footskip is too small}    % 抑制页脚间距警告
-\WarningFilter{hyperref}{Ignoring empty anchor}     % 抑制空锚点警告
-
-
-
-
-%--------------------------------------------------------------------------
-% 核心包加载
-%--------------------------------------------------------------------------
-% 基础功能包
-\RequirePackage{graphicx}                             % 图形插入支持
-\RequirePackage{longtable}                            % 长表格支持
-\RequirePackage{amsmath,amsthm,amssymb,amsfonts}      % 数学符号和字体支持
-\RequirePackage[dvipsnames]{xcolor}                   % 颜色支持
-\RequirePackage{tikz}                                 % 矢量绘图
-\RequirePackage{pstricks-add}                         % PSTricks扩展
-\RequirePackage{tikz-cd}                              % 交换图绘制
-\RequirePackage[all]{xy}                              % 交换图绘制
-\RequirePackage{mathtools}                            % 数学工具包（提供多种数学环境和命令）
-
-% 中文支持
-\RequirePackage[scheme=plain]{ctex}   % 中文基础方案
-\RequirePackage{fontspec}             % 字体配置
-
-% Unicode数学字体支持 - 必须在mathtools之后加载
-\RequirePackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}  
-% 设置数学字体：先建立一个 TeX Live 自带的主字体，再按可用性覆盖。
-% 使用文件名可避免不同系统的 Fontconfig 字体族名称不一致。
+% unicode-math provides the OpenType math alphabets and must follow mathtools.
+\RequirePackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}
+% Use STIX Two for ordinary mathematics, \mathcal, and \mathfrak. Stylistic
+% set 1 supplies a visibly distinct \mathscr alphabet, while the blackboard
+% alphabet comes from Libertinus Math. Latin Modern remains the baseline
+% fallback for smaller TeX installations.
 \setmathfont{latinmodern-math.otf}
 \IfFontExistsTF{STIXTwoMath-Regular.otf}{
   \setmathfont{STIXTwoMath-Regular.otf}
-}{}
-\IfFontExistsTF{Cambria Math}{
-  \setmathfont{Cambria Math}[range={\mathalpha}] % Cambria Math is only available on Windows.
-}{
-  \setmathfont{latinmodern-math.otf}[range={\mathalpha}] % fallback for non-Windows systems
+  \setmathfont{STIXTwoMath-Regular.otf}[
+    range={scr,bfscr},
+    StylisticSet=1
+  ]
+  \IfFontExistsTF{LibertinusMath-Regular.otf}{%
+    \setmathfont{LibertinusMath-Regular.otf}[range=bb]%
+  }{}%
+}{%
+  \IfFontExistsTF{LibertinusMath-Regular.otf}{%
+    \setmathfont{LibertinusMath-Regular.otf}%
+  }{}%
 }
-\IfFontExistsTF{LibertinusMath-Regular.otf}{
-  \setmathfont{LibertinusMath-Regular.otf}[range=bb]
-  \setmathfont{LibertinusMath-Regular.otf}[range=scr]
-}{}
-\IfFontExistsTF{STIXTwoMath-Regular.otf}{
-  \setmathfont{STIXTwoMath-Regular.otf}[range=cal] % supports lowercase calligraphic letters
-}{}
-% \setmathfont{XITS Math}[range=scr] % like scr, support lowercase
-% \setmathfont{TeX Gyre Termes Math}[range=scr] % like scr, support lowercase 
-% \setmathfont{Latin Modern Math}  % like cal, do not support lowercase
-% \setmathfont{Asana Math}[range=scr] % like scr, support lowercase
-% \setmathfont{Fira Math} % like sf, lack many fonts
-% \setmathfont{Euler Math} % like 
 
-% 引用系统
-\RequirePackage[backend=biber,style=alphabetic,backref]{biblatex} % 参考文献管理
-\ExecuteBibliographyOptions{maxbibnames=99}                       % 显示所有作者
+% =============================================================================
+% Bibliography, hyperlinks, and lists
+% =============================================================================
+% These packages provide the shared citation style, PDF destinations,
+% publication-aware clever references, and consistent list numbering.
+\RequirePackage[backend=biber,style=alphabetic,backref]{biblatex} % Citations.
+\ExecuteBibliographyOptions{maxbibnames=99}
 
-% 交互功能
-\RequirePackage{xr-hyper}      % 跨文档标签和超链接支持
-\RequirePackage{hyperref}       % 超链接支持
+\RequirePackage{xr-hyper} % Labels and destinations from separately built PDFs.
+\RequirePackage{hyperref} % PDF links, metadata, and named destinations.
 \hypersetup{
-  colorlinks = true,            % 链接颜色
-  linkcolor = blue,             % 跳转到文档内部
-  urlcolor = magenta,           % 跳转到外部链接
-  citecolor=cyan,               % 参考文献引用
-  hypertexnames=false,          % 禁止重复的锚点名称
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=magenta,
+  citecolor=cyan,
+  hypertexnames=false,
 }
-\RequirePackage[nameinlink]{cleveref} % 智能引用（自动添加前缀）
+\RequirePackage[nameinlink]{cleveref} % Type-aware \cref output.
 
-% 列表环境标号配置
-\RequirePackage{enumitem}       % Required for custom labels
-\setlist[enumerate,1]{label=(\alph*)} % 第一层级：小写字母加括号 (a), (b), ...)
-\setlist[enumerate,2]{label=(\roman*)} % 第二层级：小写罗马数字加括号 (i), (ii), ...)
+\RequirePackage{enumitem} % Consistent nested list labels.
+\setlist[enumerate,1]{label=(\alph*)}
+\setlist[enumerate,2]{label=(\roman*)}
 
-% allow display as equations breaks across pages
+% Permit long aligned calculations to break across pages.
 \allowdisplaybreaks
 
+% =============================================================================
+% Theorem environments and visual styles
+% =============================================================================
+% Define the amsthm layer first, then decorate it with tcolorbox. The later tag
+% wrappers preserve these environments while extending their optional argument.
+\RequirePackage[most]{tcolorbox} % Breakable theorem boxes and left rails.
 
-
-
-
-%--------------------------------------------------------------------------
-% 定理环境可视化配置
-%--------------------------------------------------------------------------
-\RequirePackage[most]{tcolorbox} % 彩色盒子环境
-
-% 定理标签由包装环境在定理标题生成前设置。
+% The publication wrapper sets this suffix before amsthm builds the heading.
 \newcommand{\noteformyselfstatementtag}{}
 
-% 定义定理样式模板
 \newtheoremstyle{mystyle}{}{}{}{}{\bfseries}{.}{ }{%
   \thmname{#1}\thmnumber{ #2}\thmnote{ (#3)}\noteformyselfstatementtag}
 \theoremstyle{mystyle}
 
-% 定义具体定理环境（共享计数器）
+% All ordinary statement environments share the definition counter.
 \makeatletter
 \ifdefstring{\@sectionlevel}{book}{%
-  % 书籍级别：book模式
-  \newtheorem{definition}{Definition}[section] % 定义环境按章节编号
+  \newtheorem{definition}{Definition}[section]
 }{%
   \ifdefstring{\@sectionlevel}{chapter}{%
-    % 章节级别：chapter模式
-    \newtheorem{definition}{Definition}[section] % 定义环境按章节编号
+    \newtheorem{definition}{Definition}[section]
   }{%
-    % 章节级别：section模式（默认）
     \newtheorem{definition}{Definition}
   }%
 }%
@@ -205,46 +201,41 @@
 \newtheorem{exercise}[definition]{Exercise}
 \newtheorem{construction}[definition]{Construction}
 \newtheorem{notation}[definition]{Notation}
-\newtheorem{mainthm}{Theorem} % main theorem with global numbering
-\renewcommand{\themainthm}{\Alph{mainthm}} % Display as A, B, C, ...
+\newtheorem{mainthm}{Theorem}
+\renewcommand{\themainthm}{\Alph{mainthm}}
 
-% 定义step子环境（在proof环境中使用，每个proof重置计数器）
+% Steps and cases restart in each proof, but separate monotone counters provide
+% globally unique hyperlink anchors.
 \newcounter{step}
-\newcounter{globalstep} % Global unique step counter for anchors
-% 使用全局唯一计数器globalstep进行引用，但显示本地计数器step的值
+\newcounter{globalstep}
 \newenvironment{step}[1][]{%
   \refstepcounter{step}%
-  \refstepcounter{globalstep}% This creates unique anchors
+  \refstepcounter{globalstep}%
   \par\smallskip%
   \noindent\textbf{Step \thestep\if\relax\detokenize{#1}\relax\else\ (#1)\fi.}\ %
 }{%
   \par\smallskip%
 }
-% 重新定义globalstep的显示格式，让它显示为local step number
 \renewcommand{\theglobalstep}{\arabic{step}}
 
-% 定义case子环境（在proof环境中使用，每个proof重置计数器）
 \newcounter{case}
-\newcounter{globalcase} % Global unique case counter for anchors
-% 使用全局唯一计数器globalcase进行引用，但显示本地计数器case的值
+\newcounter{globalcase}
 \newenvironment{case}[1][]{%
   \refstepcounter{case}%
-  \refstepcounter{globalcase}% This creates unique anchors
+  \refstepcounter{globalcase}%
   \par\smallskip%
   \noindent\textbf{Case \thecase\if\relax\detokenize{#1}\relax\else\ (#1)\fi.}\ %
 }{%
   \par\smallskip%
 }
-% 重新定义globalcase的显示格式，让它显示为local case number
 \renewcommand{\theglobalcase}{\arabic{case}}
 
-% 在proof环境开始时重置step和case计数器
 \AtBeginEnvironment{proof}{%
   \setcounter{case}{0}%
   \setcounter{step}{0}%
 }
 
-% 设置cleveref引用格式
+% Human-readable cleveref names.
 \crefname{definition}{Definition}{Definitions}
 \crefname{proposition}{Proposition}{Propositions}
 \crefname{theorem}{Theorem}{Theorems}
@@ -259,14 +250,14 @@
 \crefname{notation}{Notation}{Notations}
 \crefname{proof}{Proof}{Proofs}
 \crefname{claim}{Claim}{Claims}
-\crefname{globalstep}{Step}{Steps} % Global unique step counter
-\crefname{globalcase}{Case}{Cases} % Global unique case counter
+\crefname{globalstep}{Step}{Steps}
+\crefname{globalcase}{Case}{Cases}
 \crefname{section}{Section}{Sections}
 \crefname{subsection}{Subsection}{Subsections}
 \crefname{mainthm}{Theorem}{Theorems}
 
 
-% 定义有背景色的定理环境样式，应用于definition, proposition, theorem, lemma, corollary, conjecture, question
+% Filled statements: rounded on the left, square on the right.
 \newcommand{\mybackgroundtcbsetup}[3]{%
   \tcolorboxenvironment{#1}{
     boxrule=0pt,
@@ -275,8 +266,10 @@
     left=8pt,
     right=8pt,
     enhanced jigsaw,
-    borderline west={2pt}{0pt}{#2},
-    sharp corners,
+    arc=4pt,
+    outer arc=4pt,
+    sharp corners=east,
+    borderline west={2pt}{0pt}{#2,line cap=round},
     before skip=10pt,
     after skip=10pt,
     breakable,
@@ -292,16 +285,15 @@
 \mybackgroundtcbsetup{conjecture}{violet}{}
 \mybackgroundtcbsetup{question}{Thistle}{}
 
-% 定义背景色的remark, example, claim, step, exercise环境样式
+% Lightweight statements: a rounded-ended left rail without a background.
 \newcommand{\myemptybgtcdsetup}[3]{%
   \tcolorboxenvironment{#1}{
     boxrule=0pt,
     boxsep=0pt,
-    blanker,             % 清除所有默认样式
-    borderline west={2pt}{0pt}{#2}, % 左侧线
+    blanker,
+    borderline west={2pt}{0pt}{#2,line cap=round},
     left=8pt,
     right=8pt,
-    sharp corners,
     before skip=10pt,
     after skip=10pt,
     breakable,
@@ -320,7 +312,7 @@
 \myemptybgtcdsetup{notation}{MidnightBlue}{}
 
 
-% 定义slogan环境
+% Slogans intentionally keep a fully sharp frame.
 \newtheoremstyle{sloganstyle}{}{}{\itshape}{}{\bfseries}{}{ }{}
 \theoremstyle{sloganstyle}
 \newtheorem*{slogan}{Slogan}
@@ -340,9 +332,11 @@
 }
 
 
-%--------------------------------------------------------------------------
-% 永久标签、发布状态与跨文档引用
-%--------------------------------------------------------------------------
+% =============================================================================
+% Publication tags and cross-document references
+% =============================================================================
+% This subsystem validates published entries, writes compact local labels plus
+% book-qualified external labels, and provides frozen lookup for retired tags.
 % Supply cleveref with the publication-aware record before it writes the
 % ordinary label and the matching @cref label to the auxiliary file.
 \makeatletter
@@ -359,7 +353,7 @@
 
 \ExplSyntaxOn
 
-% 当前编译范围的元数据。book/chapter/section 标签是稳定 ID，而不是编号。
+% Current publication scope. Tags are stable identifiers, not display numbers.
 \tl_new:N \g_nfm_scope_status_tl
 \tl_new:N \g_nfm_book_tag_tl
 \tl_new:N \g_nfm_chapter_tag_tl
@@ -378,6 +372,7 @@
       {Use~status=draft~or~status=published.}
   }
 
+% Diagnostics are centralized here so validation failures remain consistent.
 \msg_new:nnnn { noteformyself } { invalid-code }
   { Invalid~#1~tag~'#2'. }
   { Use~exactly~#3~uppercase~alphanumeric~characters~(0--9,~A--Z). }
@@ -427,6 +422,7 @@
 \cs_generate_variant:Nn \prop_get:NnNTF { NVNTF }
 \cs_generate_variant:Nn \prop_gput:Nnn { NVV, NVn }
 
+% Public scope configuration and hierarchy validation.
 \keys_define:nn { nfm/setup }
   {
     status .choice:,
@@ -474,7 +470,10 @@
     \tl_if_blank:VF \g_nfm_section_tag_tl
       {
         \tl_if_blank:VF \g_nfm_chapter_tag_tl
-          { \nfm_validate_prefix:NNnn \g_nfm_section_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 } }
+          {
+            \nfm_validate_prefix:NNnn
+              \g_nfm_section_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 }
+          }
       }
   }
 
@@ -484,7 +483,11 @@
     \nfm_validate_context:
   }
 
-% External global tag registry.
+% -----------------------------------------------------------------------------
+% External global tag registry
+% -----------------------------------------------------------------------------
+% Active records bind a permanent tag to a book, statement type, and source
+% label. Retired records retain their last number and point to a replacement.
 \prop_new:N \g_nfm_registry_status_prop
 \prop_new:N \g_nfm_registry_book_tag_prop
 \prop_new:N \g_nfm_registry_chapter_tag_prop
@@ -647,7 +650,12 @@
   }
 \AtBeginDocument{\nfm_validate_retired_replacements:}
 
-% Per-entry metadata.
+% -----------------------------------------------------------------------------
+% Theorem-like statement metadata
+% -----------------------------------------------------------------------------
+% The optional argument accepts either the traditional title or the keys
+% title, status, tag, and label. Published entries are checked against the
+% registry before the original amsthm environment begins.
 \tl_new:N \l_nfm_statement_title_tl
 \tl_new:N \l_nfm_statement_status_tl
 \tl_new:N \l_nfm_statement_tag_tl
@@ -942,9 +950,13 @@
 \nfm_wrap_statement_environment:nn { notation }     { Notation }
 \nfm_wrap_statement_environment:nn { mainthm }      { Theorem }
 
-% Publication-aware chapter, section, and subsection metadata.  Subsections
-% are tagged referenceable items, not a new allocation or status scope; their
-% seven-character tags share the section-level pool with theorem-like entries.
+% -----------------------------------------------------------------------------
+% Chapter, section, and subsection metadata
+% -----------------------------------------------------------------------------
+% Subsections are tagged referenceable items, not a new allocation or status
+% scope. Their seven-character tags share the section-level pool with entries.
+% A normal short title remains compatible; metadata mode begins with one of the
+% keys short-title, status, tag, or label.
 \tl_new:N \l_nfm_division_short_title_tl
 \tl_new:N \l_nfm_division_status_tl
 \tl_new:N \l_nfm_division_tag_tl
@@ -1199,9 +1211,18 @@
   {
     \IfBooleanTF{#1}
       { \nfm_base_subsection*{#3} }
-      { \nfm_division_command:Nnnnnn \nfm_base_subsection { subsection } { Subsection } { 7 } {#2} {#3} }
+      {
+        \nfm_division_command:Nnnnnn
+          \nfm_base_subsection { subsection } { Subsection } { 7 } {#2} {#3}
+      }
   }
 
+% -----------------------------------------------------------------------------
+% Imported references and frozen tag lookup
+% -----------------------------------------------------------------------------
+% \externalnotedocument combines xr-hyper's ordinary auxiliary labels with the
+% companion .nfm-xref descriptions written above. Generated catalog imports use
+% \NoteImportedReference instead and never execute downloaded TeX directly.
 \tl_new:N \l_nfm_external_prefix_tl
 
 \cs_new_protected:Npn \nfm_external_reference:nn #1#2
@@ -1273,151 +1294,107 @@
 \crefformat{nfmdraft}{#2#1#3}
 \Crefformat{nfmdraft}{#2#1#3}
 
-
-
-
-%--------------------------------------------------------------------------
-% 代码块配置
-%--------------------------------------------------------------------------
-\RequirePackage{listings}     % 代码高亮支持
-% 定义颜色
+% =============================================================================
+% Source-code listings
+% =============================================================================
+% Install one restrained default style and make listing labels available to
+% cleveref. Documents may still override it locally with ordinary listings keys.
+\RequirePackage{listings} % Highlighted, referenceable source-code examples.
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
 \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
 
-% 定义 listings 风格，可以定义多个
 \lstdefinestyle{mystyle}{
-    backgroundcolor=\color{backcolour},  % 背景色
-    commentstyle= \color{red!50!green!50!blue!50},  % 注释的颜色
-    keywordstyle= \color{blue!70},  % 关键字/程序语言中的保留字颜色
-    numberstyle=\tiny\color{codegray},  % 左侧行号显示的颜色
-    stringstyle=\color{codepurple},
-    basicstyle=\ttfamily\footnotesize,
-    breakatwhitespace=false,
-    breaklines=true,  % 对过长的代码自动换行
-    captionpos=b,
-    keepspaces=true,
-    numbers=left,  % 在左侧显示行号
-    numbersep=5pt,
-    showspaces=false,
-    showstringspaces=false,  % 不显示字符串中的空格
-    showtabs=false,
-    tabsize=2,
-    frame=single  % [none | single | shadowbox] 显示边框
+  backgroundcolor=\color{backcolour},
+  commentstyle=\color{red!50!green!50!blue!50},
+  keywordstyle=\color{blue!70},
+  numberstyle=\tiny\color{codegray},
+  stringstyle=\color{codepurple},
+  basicstyle=\ttfamily\footnotesize,
+  breakatwhitespace=false,
+  breaklines=true,
+  captionpos=b,
+  keepspaces=true,
+  numbers=left,
+  numbersep=5pt,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=2,
+  frame=single
 }
-\lstset{style=mystyle}  % 使用 listings 风格
+\lstset{style=mystyle}
 
-\crefname{lstlisting}{Code}{Codes} % 设置cleveref引用格式
+\crefname{lstlisting}{Code}{Codes}
 
-
-
-
-%--------------------------------------------------------------------------
-% 文档元数据定义
-%--------------------------------------------------------------------------
+% =============================================================================
+% Document and cover metadata
+% =============================================================================
+% Store public metadata without imposing it on modes that do not display it.
+% Book mode uses every field; chapter and section modes use smaller subsets.
 \makeatletter
-% 作者信息处理
-\let\oldauthor\author
-\renewcommand{\author}[1]{%
-  \oldauthor{#1}%
-  \gdef\@author{#1}%
-}
-\gdef\@author{} % 初始化作者变量
-% 标题信息处理
-\let\oldtitle\title
-\renewcommand{\title}[1]{%
-  \oldtitle{#1}%
-  \gdef\@title{#1}%
-}
-\gdef\@title{} % 初始化标题变量
-% 日期信息处理
-\let\olddate\date
-\renewcommand{\date}[1]{%
-  \olddate{#1}%
-  \gdef\@date{#1}%
-}
-\gdef\@date{} % 初始化日期变量
-% 自定义封面元素
-\gdef\@authoremail{}     % 作者邮箱
+\gdef\@authoremail{}
 \newcommand{\authoremail}[1]{\gdef\@authoremail{#1}}
-\gdef\@authorpage{}     % 作者主页
-\newcommand{\authorpage}[1]{\gdef\@authorpage{#1}} 
-\gdef\@coversentence{}  % 封面标语
+\gdef\@authorpage{}
+\newcommand{\authorpage}[1]{\gdef\@authorpage{#1}}
+\gdef\@citationkey{}
+\newcommand{\citationkey}[1]{\gdef\@citationkey{#1}}
+\gdef\@noteurl{}
+\newcommand{\noteurl}[1]{\gdef\@noteurl{#1}}
+\gdef\@coversentence{}
 \newcommand{\coversentence}[1]{\gdef\@coversentence{#1}}
-\gdef\@coverimage{}     % 封面图片路径
+\gdef\@coverimage{}
 \newcommand{\coverimage}[1]{\gdef\@coverimage{#1}}
-\gdef\@coverlinecolor{orange!80!yellow} % 封面装饰线颜色
-\newcommand{\coverlinecolor}[1]{\gdef\@coverlinecolor{#1}}
-\gdef\@covertitlefont{Arial}  % 封面标题字体
-\newcommand{\covertitlefont}[1]{\gdef\@covertitlefont{#1}}
-\gdef\@covertextcolor{purple!70!blue}   % 封面文字颜色
+
+\definecolor{nfmCoverAccent}{HTML}{B8DCE8}
+\definecolor{nfmCoverPaper}{HTML}{F3F0E5}
+\definecolor{nfmCoverInk}{HTML}{17343E}
+\definecolor{nfmMutedInk}{HTML}{667175}
+\gdef\@coveraccentcolor{nfmCoverAccent}
+\newcommand{\coveraccentcolor}[1]{\gdef\@coveraccentcolor{#1}}
+\gdef\@coverpapercolor{nfmCoverPaper}
+\newcommand{\coverpapercolor}[1]{\gdef\@coverpapercolor{#1}}
+\gdef\@covertextcolor{nfmCoverInk}
 \newcommand{\covertextcolor}[1]{\gdef\@covertextcolor{#1}}
-\gdef\@texsource{} % TeX源代码路径
+\gdef\@covertitlefont{Libertinus Sans}
+\newcommand{\covertitlefont}[1]{\gdef\@covertitlefont{#1}}
+
+\gdef\@texsource{}
 \newcommand{\texsource}[1]{\gdef\@texsource{#1}}
-\gdef\@version{1.0.0} % 文档版本
+\gdef\@version{2.0.0}
 \newcommand{\version}[1]{\gdef\@version{#1}}
-\gdef\@copyrightyear{\number\year} % 版权声明
+\gdef\@copyrightyear{\number\year}
 \newcommand{\copyrightyear}[1]{\gdef\@copyrightyear{#1}}
 \makeatother
 
+% =============================================================================
+% Page styles
+% =============================================================================
+% Book pages use quiet title-case running heads and outer page numbers. Article
+% modes keep only a centered page number. No mode draws header or footer rules.
+\RequirePackage{fancyhdr} % Rule-free running heads and page numbers.
+\RequirePackage[bottom,multiple]{footmisc} % Stable placement of footnotes.
 
-
-
-%--------------------------------------------------------------------------
-% 页眉页脚样式配置
-%--------------------------------------------------------------------------
-% 页面装饰
-\RequirePackage{fancyhdr}       % 页眉页脚定制
-\RequirePackage[bottom,multiple]{footmisc} % 脚注增强
-
-% 统一灰色页眉线命令
-\newcommand{\grayheadrule}{
-  \vbox to 2pt{%
-      \color{gray}%
-      \hrule width \headwidth height \headrulewidth%
-      \vss%
-    }%
-}
-% 统一灰色页脚线命令
-\newcommand{\grayfootrule}{
-  \vbox to -10pt{%
-      \color{gray}%
-      \hrule width \headwidth height \headrulewidth%
-      \vss%
-    }%
-}
-% section/chapter模式
 \makeatletter
 \fancypagestyle{sectionmainmatter}{
-  \pagestyle{fancy}
-  % 页眉样式
-    \fancyhead[R]{%
-      	\tikz[baseline=(char.base)]{
-        \node[shape=rectangle,fill=gray,text=white,inner sep=2pt] (char) {\thepage};
-      }%
-    }
-  \fancyhead[L]{\nouppercase{\@title}}
-  \renewcommand{\headrulewidth}{4pt}
-  \renewcommand{\headrule}{\grayheadrule}
-  % 页脚样式（留空）
-  \renewcommand{\footrule}{\grayfootrule}
-  \fancyfoot{}
+  \fancyhf{}
+  \fancyfoot[C]{\sffamily\small\color{nfmMutedInk}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
 }
-\makeatother
-% book模式
+
 \fancypagestyle{bookmainmatter}{
-  \fancyhead[LO]{\leftmark}
-  \fancyhead[RO]{\tikz[baseline=(char.base)]{\node[rectangle,fill=gray,text=white,inner sep=2pt] (char) {\thepage};}}
-  \fancyhead[LE]{\tikz[baseline=(char.base)]{\node[rectangle,fill=gray,text=white,inner sep=2pt] (char) {\thepage};}}
-  \fancyhead[RE]{\rightmark}
-  \renewcommand{\headrulewidth}{4pt}
-  \renewcommand{\headrule}{\grayheadrule}
-  \renewcommand{\footrule}{\grayfootrule}
-  \fancyfoot{}
+  \fancyhf{}
+  \fancyhead[LE]{\sffamily\small\color{nfmMutedInk}\thepage}
+  \fancyhead[RE]{\sffamily\small\color{nfmMutedInk}\nouppercase{\leftmark}}
+  \fancyhead[LO]{\sffamily\small\color{nfmMutedInk}\nouppercase{\rightmark}}
+  \fancyhead[RO]{\sffamily\small\color{nfmMutedInk}\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+  \renewcommand{\footrulewidth}{0pt}
 }
-\makeatletter
-% Redefine \leftmark and \rightmark for non-uppercase chapter/section names
+
+% Preserve title case in the book's running heads.
 \ifdefstring{\@sectionlevel}{book}{%
   \renewcommand{\chaptermark}[1]{%
     \markboth{\thechapter.\ #1}{}
@@ -1425,9 +1402,8 @@
   \renewcommand{\sectionmark}[1]{%
     \markright{\thesection.\ #1}
   }
-}{%
-}%
-% apply the mainmatter pagestyle
+}{}%
+
 \ifdefstring{\@sectionlevel}{book}{%
   \pagestyle{bookmainmatter}
 }{%
@@ -1435,267 +1411,213 @@
 }%
 \makeatother
 
-
-
-
-%--------------------------------------------------------------------------
-% 封面页重定义
-%--------------------------------------------------------------------------
-% Prevent redefinition errors when trimclip/adjustbox defines these macros
-\let\trimbox\relax
-\let\clipbox\relax
-\let\marginbox\relax
-\RequirePackage{adjustbox}      % 高级图片调整（支持max width/height）
+% =============================================================================
+% Title pages
+% =============================================================================
+% Book and chapter modes share the same TikZ renderer. Book mode follows it with
+% an aligned information/citation page; section mode prints compact metadata.
 \makeatletter
-\renewcommand{\maketitle}{%
-  \ifdefstring{\@sectionlevel}{book}{%
-    % --- Book模式: 全页封面 ---
-    \newgeometry{top=45pt, bottom=51pt, left=36pt, right=36pt, includefoot, footskip=0pt}
-    \begin{titlepage}
-      \thispagestyle{fancy}
-      % 装饰线参数
-      \gdef\biglineheight{10pt}
-      \gdef\smalllineheight{4pt}
-      \gdef\spaceheight{11pt}
-      % 页眉装饰线
-      \renewcommand{\headrule}{%
-        \vbox to 0pt{%
-          \color{\@coverlinecolor}%
-          \hrule width \headwidth height \biglineheight%
-          \vspace{\spaceheight}%
-          \hrule width \headwidth height \smalllineheight%
-          \vss%
-        }%
-      }
-      \renewcommand{\headrulewidth}{2mm}
-      \fancyhead{}
-      % 页脚装饰线
-      \renewcommand{\footrule}{%
-        \vbox to 0pt{%
-          \color{\@coverlinecolor}%
-          \hrule width \headwidth height \smalllineheight%
-          \vspace{\spaceheight}%
-          \hrule width \headwidth height \biglineheight%
-          \vss%
-        }%
-      }
-      \fancyfoot{}
-      % 标题
-      \vspace*{1mm}
-      \begin{flushleft}
-        \begin{minipage}{0.8\textwidth}
-          \fontspec{\@covertitlefont}
-          \fontsize{40pt}{48pt}\selectfont
-          \textcolor{\@covertextcolor}{\@title}
-        \end{minipage}
-      \end{flushleft}
-      % 封面图片
-      \vfill
-      \ifx\@coverimage\@empty
-        \PackageWarning{noteformyself}{No cover image specified. Use \string\coverimage{filename} to add a cover image}%
-        \begin{center}
-          \fbox{\parbox{0.48\textwidth}{%
-            \centering
-            \vspace{2cm}
-            \textcolor{gray}{\Large No Cover Image}\\[0.5cm]
-            \textcolor{gray}{\footnotesize Use \texttt{\textbackslash coverimage\{filename\}} to add an image}
-            \vspace{2cm}
-          }}
-        \end{center}
-      \else
-        \IfFileExists{\@coverimage}{%
-          \begin{figure}[ht]
-            \centering
-            \adjustimage{max width=0.6\textwidth, max height=0.4\textheight, keepaspectratio}{\@coverimage}
-          \end{figure}
-        }{%
-          \PackageError{noteformyself}{Cover image file '\@coverimage' not found}{%
-            Please check that the file '\@coverimage' exists in your project directory.%
-          }%
-          \begin{center}
-            \fbox{\parbox{0.48\textwidth}{%
-              \centering
-              \vspace{2cm}
-              \textcolor{red}{\Large Image Not Found}\\[0.5cm]
-              \textcolor{red}{\footnotesize File '\@coverimage' does not exist}
-              \vspace{2cm}
-            }}
-          \end{center}
-        }
-      \fi
-      % 标语
-      \vspace{0.8cm}
-      \begin{flushright}
-        \begin{minipage}{0.8\textwidth}
-          \begin{flushright}
-            \large \textcolor{\@covertextcolor}{\@coversentence}
-          \end{flushright}
-        \end{minipage}
-      \end{flushright}
-      \vspace{0.8cm}
-    \end{titlepage}
-    \restoregeometry
-    \clearpage
-    % 信息页
-    \thispagestyle{empty}
-    \noindent {\Huge \textbf{\@title}}\\[0.5cm]
-    {\large \textbf{Author:} \@author}\\[0.5cm]
-    {\large \textbf{Email:} \@authoremail}\\[0.5cm]
-    {\large \textbf{Homepage:} \@authorpage}\\[0.5cm]
-    \vfill
-    \noindent {\large \textit{Source code: \@texsource}}\\[0.5cm]
-    {\large \textit{Version: \@version}}\\[0.5cm]
-    {\large \textit{Last updated: \@date}}\\[0.5cm]
-    {\large \textit{Copyright © \@copyrightyear\ \@author}}
-    \clearpage
-    \pagestyle{bookmainmatter}
-  }{%
-    \ifdefstring{\@sectionlevel}{chapter}{%
-      % --- Chapter模式: 全页封面 ---
-      \newgeometry{top=50pt, bottom=51pt, left=36pt, right=36pt, includefoot, footskip=0pt}
-      \begin{titlepage}
-        \thispagestyle{fancy}
-        % 装饰线参数
-        \gdef\biglineheight{10pt}
-        \gdef\smalllineheight{4pt}
-        \gdef\spaceheight{11pt}
-        % 页眉装饰线
-        \renewcommand{\headrule}{%
-          \vbox to 0pt{%
-            \color{\@coverlinecolor}%
-            \hrule width \headwidth height \biglineheight%
-            \vspace{\spaceheight}%
-            \hrule width \headwidth height \smalllineheight%
-            \vss%
-          }%
-        }
-        \renewcommand{\headrulewidth}{2mm}
-        \fancyhead{}
-        % 页脚装饰线
-        \renewcommand{\footrule}{%
-          \vbox to 0pt{%
-            \color{\@coverlinecolor}%
-            \hrule width \headwidth height \smalllineheight%
-            \vspace{\spaceheight}%
-            \hrule width \headwidth height \biglineheight%
-            \vss%
-          }%
-        }
-        \fancyfoot{}
-        % 标题
-        \vspace*{1mm}
-        \begin{flushleft}
-          \begin{minipage}{0.8\textwidth}
-            \fontspec{\@covertitlefont}
-            \fontsize{40pt}{48pt}\selectfont
-            \textcolor{\@covertextcolor}{\@title}
-          \end{minipage}
-        \end{flushleft}
-        % 封面图片
-        \vfill
-        \ifx\@coverimage\@empty
-          \PackageWarning{noteformyself}{No cover image specified. Use \string\coverimage{filename} to add a cover image}%
-          \begin{center}
-            \fbox{\parbox{0.48\textwidth}{%
-              \centering
-              \vspace{2cm}
-              \textcolor{gray}{\Large No Cover Image}\\[0.5cm]
-              \textcolor{gray}{\footnotesize Use \texttt{\textbackslash coverimage\{filename\}} to add an image}
-              \vspace{2cm}
-            }}
-          \end{center}
-        \else
-          \IfFileExists{\@coverimage}{%
-            \begin{figure}[ht]
-              \centering
-              \adjustimage{max width=0.6\textwidth, max height=0.4\textheight, keepaspectratio}{\@coverimage}
-            \end{figure}
-          }{%
-            \PackageError{noteformyself}{Cover image file '\@coverimage' not found}{%
-              Please check that the file '\@coverimage' exists in your project directory.%
-            }%
-            \begin{center}
-              \fbox{\parbox{0.48\textwidth}{%
-                \centering
-                \vspace{2cm}
-                \textcolor{red}{\Large Image Not Found}\\[0.5cm]
-                \textcolor{red}{\footnotesize File '\@coverimage' does not exist}
-                \vspace{2cm}
-              }}
-            \end{center}
-          }
-        \fi
-        % 标语
-        \vspace{0.8cm}
-        \begin{flushright}
-          \begin{minipage}{0.8\textwidth}
-            \begin{flushright}
-              \large \textcolor{\@covertextcolor}{\@coversentence}
-            \end{flushright}
-          \end{minipage}
-        \end{flushright}
-        \vspace{0.8cm}
-      \end{titlepage}
-      \restoregeometry
-      \clearpage
-      % 设置正文样式
-      \pagestyle{sectionmainmatter}
-      % 信息脚注
-      \renewcommand{\thefootnote}{}
-      \noteformyself@footnotetext
-      \renewcommand{\thefootnote}{\fnsymbol{footnote}}
+\newcommand{\nfm@selectcovertitlefont}{%
+  \IfFontExistsTF{\@covertitlefont}{\fontspec{\@covertitlefont}}{\sffamily}%
+}
+
+\newcommand{\nfm@drawcoverimage}{%
+  \ifdefempty{\@coverimage}{}{%
+    \IfFileExists{\@coverimage}{%
+      \node at ([yshift=-0.56\paperheight]current page.north) {%
+        \includegraphics[
+          width=0.62\paperwidth,
+          height=0.40\paperheight,
+          keepaspectratio
+        ]{\@coverimage}%
+      };%
     }{%
-      % --- Section模式: 简化封面 ---
-      \pagestyle{sectionmainmatter}
-      \renewcommand{\thefootnote}{}
-      \noteformyself@footnotetext
-      \renewcommand{\thefootnote}{\fnsymbol{footnote}}
+      \PackageWarning{noteformyself}{%
+        Cover image file '\@coverimage' not found; continuing without it%
+      }%
     }%
   }%
 }
-% 封面脚注文本
-\newcommand{\noteformyself@footnotetext}{%
-  \footnotetext{\textbf{Date}: \@date,\ \textbf{Author}: \@author,\ \@authorpage}%
+
+% One full-page renderer is shared by book and chapter modes.
+\newcommand{\nfm@makecover}[1]{%
+  \begin{titlepage}
+    \thispagestyle{empty}
+    \begin{tikzpicture}[remember picture,overlay]
+      \fill[\@coverpapercolor]
+        (current page.south west) rectangle (current page.north east);
+      \fill[\@coveraccentcolor]
+        (current page.north west) rectangle
+        ([yshift=-0.21\paperheight]current page.north east);
+
+      \node[
+        anchor=west,
+        align=left,
+        inner sep=0pt,
+        text width=0.84\paperwidth
+      ] at ([xshift=0.08\paperwidth,yshift=-0.105\paperheight]current page.north west) {%
+        \nfm@selectcovertitlefont
+        \raggedright
+        \color{\@covertextcolor}
+        \ifstrempty{#1}{}{%
+          {\fontsize{10pt}{12pt}\selectfont\bfseries\MakeUppercase{#1}\par}%
+          \vspace{8pt}%
+        }%
+        {\fontsize{34pt}{40pt}\selectfont\bfseries\@title\par}%
+      };
+
+      \nfm@drawcoverimage
+
+      \ifdefempty{\@coversentence}{}{%
+        \node[
+          anchor=south east,
+          align=flush right,
+          text width=0.64\paperwidth
+        ] at ([xshift=-0.08\paperwidth,yshift=0.13\paperheight]current page.south east) {%
+          \color{\@covertextcolor}\large\itshape\@coversentence
+        };%
+      }%
+
+      \node[
+        anchor=south west,
+        align=left,
+        text width=0.84\paperwidth
+      ] at ([xshift=0.08\paperwidth,yshift=0.055\paperheight]current page.south west) {%
+        \sffamily\small\color{nfmMutedInk}
+        \ifdefempty{\@author}{}{\textbf{\@author}\par}
+        \@date
+        \ifdefempty{\@version}{}{%
+          \enspace\textperiodcentered\enspace Version \@version
+        }%
+      };
+    \end{tikzpicture}
+    \null
+  \end{titlepage}%
+}
+
+\newcommand{\nfm@makecitation}{%
+  \ifdefempty{\@citationkey}{}{%
+    \vspace{1.8em}%
+    {\sffamily\small\bfseries\color{nfmCoverInk}Suggested citation\par}%
+    \vspace{0.55em}%
+    \begingroup
+      \ttfamily\footnotesize\raggedright
+      @misc\{\@citationkey,\par
+      \hangindent=1.5em\hangafter=1
+      \hspace*{1.5em}author = \{\@author\},\par
+      \hangindent=1.5em\hangafter=1
+      \hspace*{1.5em}title = \{\@title\},\par
+      \hangindent=1.5em\hangafter=1
+      \hspace*{1.5em}year = \{\@copyrightyear\},\par
+      \ifdefempty{\@version}{}{%
+        \hangindent=1.5em\hangafter=1
+        \hspace*{1.5em}version = \{\@version\},\par
+      }%
+      \ifdefempty{\@noteurl}{}{%
+        \hangindent=1.5em\hangafter=1
+        \hspace*{1.5em}url = \{%
+          \expandafter\nolinkurl\expandafter{\@noteurl}%
+        \},\par
+      }%
+      \}\par
+    \endgroup
+  }%
+}
+
+\newcommand{\nfm@makebookinfo}{%
+  \begingroup
+  \setlength{\parindent}{0pt}%
+  \thispagestyle{empty}
+  \vspace*{0.10\textheight}
+  \begin{minipage}{0.84\textwidth}
+    \raggedright
+    \sffamily\bfseries\color{nfmCoverInk}\Huge\@title\par
+  \end{minipage}\par
+  \vspace{1.4em}
+  {\large\@author\par}
+  \ifdefempty{\@authoremail}{}{\vspace{0.4em}\@authoremail\par}
+  \ifdefempty{\@authorpage}{}{\vspace{0.4em}\@authorpage\par}
+  \nfm@makecitation
+  \vfill
+  {\small\color{nfmMutedInk}
+    \ifdefempty{\@texsource}{}{\@texsource\par\vspace{0.35em}}
+    \ifdefempty{\@version}{}{Version \@version\par\vspace{0.35em}}
+    Last updated \@date\par\vspace{0.35em}
+    Copyright © \@copyrightyear\ \@author\par
+  }
+  \clearpage
+  \endgroup
+}
+
+\newcommand{\nfm@makesectionmetadata}{%
+  \par\noindent
+  \hfill
+  {\sffamily\small\color{nfmMutedInk}
+    \ifdefempty{\@author}{}{\@author}
+    \ifdefempty{\@author}{}{%
+      \ifdefempty{\@date}{}{\enspace\textperiodcentered\enspace}%
+    }%
+    \ifdefempty{\@date}{}{\@date}%
+  }
+  \par\vspace{1em}
+}
+
+\renewcommand{\maketitle}{%
+  \ifdefstring{\@sectionlevel}{book}{%
+    \nfm@makecover{}
+    \nfm@makebookinfo
+    \pagestyle{bookmainmatter}
+  }{%
+    \ifdefstring{\@sectionlevel}{chapter}{%
+      \nfm@makecover{Chapter}
+      \pagestyle{sectionmainmatter}
+    }{%
+      \pagestyle{sectionmainmatter}
+      \nfm@makesectionmetadata
+    }%
+  }%
 }
 \makeatother
 
-
-
-
-%--------------------------------------------------------------------------
-% 章节标题格式配置
-%--------------------------------------------------------------------------
-\RequirePackage{titlesec}
-% 定义sectionlevel命令来控制章节级别
+% =============================================================================
+% Division headings
+% =============================================================================
+% Apply the visual hierarchy for each compilation mode, then wrap the resulting
+% commands so tagged structural metadata does not interfere with titlesec.
+\RequirePackage{titlesec} % Mode-specific chapter and section typography.
 \makeatletter
 \edef\@sectionlevel{\noteformyself@sectionlevel}
 \ifdefstring{\@sectionlevel}{book}{%
-  % 书籍级别：book模式 
   \titleformat{\chapter}[display]
-    {\thispagestyle{bookmainmatter}\normalfont\Huge\bfseries} % 标题样式
-    {\chaptertitlename\ \thechapter} % 章节编号格式
-    {10pt} % 标题与编号间距
-    {} % 标题前命令
-    [\vspace{1em}] % 标题后命令
+    {\thispagestyle{bookmainmatter}\sffamily\Huge\bfseries\color{nfmCoverInk}}
+    {\chaptertitlename\ \thechapter}
+    {10pt}
+    {}
+    [\vspace{1em}]
   \titleformat{\section}
-    {\normalfont\LARGE\bfseries} % 小节标题样式
-    {\thesection} % 小节编号格式
-    {1em} % 标题与编号间距
-    {} % 小节标题前命令
-    [] % 小节标题后命令
-  \titlespacing{\section}{0pt}{3em}{1em} % 小节标题前后间距
+    {\sffamily\LARGE\bfseries\color{nfmCoverInk}}
+    {\thesection}
+    {1em}
+    {}
+    []
+  \titleformat{\subsection}[block]
+    {\sffamily\Large\bfseries\color{nfmCoverInk}}
+    {\thesubsection}{1em}{}
+  \titlespacing{\section}{0pt}{3em}{1em}
 }{%
   \ifdefstring{\@sectionlevel}{chapter}{%
-    % 章节级别：chapter模式
-    \renewcommand{\thesection}{\arabic{section}}  % 章节编号：1, 2, 3...
-    \renewcommand{\thesubsection}{\thesection.\arabic{subsection}}  % 小节编号：1.1, 1.2...
-    \titleformat{\section}[block]{\normalfont\LARGE\bfseries}{\thesection}{1em}{}
-    \titleformat{\subsection}[block]{\normalfont\Large\bfseries}{\thesubsection}{1em}{}
+    \renewcommand{\thesection}{\arabic{section}}
+    \renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+    \titleformat{\section}[block]{\sffamily\LARGE\bfseries\color{nfmCoverInk}}{\thesection}{1em}{}
+    \titleformat{\subsection}[block]
+      {\sffamily\Large\bfseries\color{nfmCoverInk}}
+      {\thesubsection}{1em}{}
   }{%
-    % 章节级别：section模式（默认）
-    \renewcommand{\thesubsection}{\arabic{subsection}}  % 小节编号格式
-    \titleformat{\section}[block]{\normalfont\LARGE\bfseries}{}{0em}{}
-    \titleformat{\subsection}[block]{\normalfont\Large\bfseries}{\thesubsection}{1em}{}
+    \renewcommand{\thesubsection}{\arabic{subsection}}
+    \titleformat{\section}[block]{\sffamily\LARGE\bfseries\color{nfmCoverInk}}{}{0em}{}
+    \titleformat{\subsection}[block]
+      {\sffamily\Large\bfseries\color{nfmCoverInk}}
+      {\thesubsection}{1em}{}
   }%
 }%
 \makeatother
