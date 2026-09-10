@@ -36,7 +36,10 @@ SAFE_REFERENCE_NUMBER_RE = re.compile(r"^[0-9A-Za-z.*(): -]*$")
 SAFE_PAGE_RE = re.compile(r"^[0-9A-Za-z.*(): -]+$")
 SAFE_COUNTER_RE = re.compile(r"^[0-9]+$")
 SAFE_CREF_TYPE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9@_-]*$")
-SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z:._@-]*$")
+# Hyperref may include a literal `*` in generated destination names (for
+# example, `construction*.303` under TeX Live 2026).  Anchors are opaque: keep
+# the exact value so imported links reach the matching destination in the PDF.
+SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z*:._@-]*$")
 MAX_CATALOG_BYTES = 10 * 1024 * 1024
 REFERENCE_KIND_NAMES = {
     "chapter": "Chapter",

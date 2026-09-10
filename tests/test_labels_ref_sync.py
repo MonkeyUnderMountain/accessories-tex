@@ -217,6 +217,25 @@ class LabelsRefSyncTest(unittest.TestCase):
         self.assertEqual(slogan["number"], "")
         self.assertEqual(slogan["display"], "[Fixture Book, Slogan]")
 
+    def test_release_preserves_a_starred_pdf_anchor(self) -> None:
+        self.wrappers["s2"].with_suffix(".aux").write_text(
+            aux_record(
+                "cons:starred-anchor", "2", "3", "construction*.303"
+            ),
+            encoding="utf-8",
+        )
+
+        self.run_script("release")
+        catalog = json.loads((self.root / "external-labels.json").read_text())
+        construction = next(
+            record
+            for item in catalog["documents"]
+            for record in item["labels"]
+            if record["label"] == "cons:starred-anchor"
+        )
+
+        self.assertEqual(construction["anchor"], "construction*.303")
+
     def test_sync_excludes_self_and_validates_generated_files(self) -> None:
         self.run_script("sync")
         s1_imports = (self.wrappers["s1"].parent / "external-labels.tex").read_text()
