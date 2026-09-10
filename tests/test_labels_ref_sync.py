@@ -35,7 +35,7 @@ def xref_record(
 ) -> str:
     if status == "published":
         kind = "nfmpublished"
-        display = f"[Fixture Book, Theorem {number}, Tag {tag}]"
+        display = rf"[Fixture Book, Theorem {number}, Tag \texttt {{{tag}}}]"
     else:
         kind = "nfmdraft"
         display = f"[Fixture Book, Theorem {number}]"
@@ -178,6 +178,10 @@ class LabelsRefSyncTest(unittest.TestCase):
         self.assertEqual(record["anchor"], "definition.1")
         self.assertEqual(record["tag"], "A00AA00")
         self.assertEqual(
+            record["display"],
+            "[Fixture Book, Theorem 1.1.7, Tag A00AA00]",
+        )
+        self.assertEqual(
             section["url"],
             "https://www.tianleyang.com/fixture-book/pdf/chapters/c1/s1/s1.pdf",
         )
@@ -248,7 +252,7 @@ class LabelsRefSyncTest(unittest.TestCase):
         self.assertIn("c1--s1", s2_imports)
         self.assertIn("\\NoteImportedReference{thm:alpha}", local_alpha)
         self.assertIn("{{1.1.7}{4}{}{definition.1}", local_alpha)
-        self.assertIn("Theorem 1.1.7 (Tag A00AA00)", local_alpha)
+        self.assertIn(r"Theorem 1.1.7 (Tag \texttt{A00AA00})", local_alpha)
         self.assertIn(
             "https://www.tianleyang.com/fixture-book/pdf/chapters/c1/s1/s1.pdf",
             local_alpha,
@@ -339,6 +343,7 @@ class LabelsRefSyncTest(unittest.TestCase):
             "https://example.com/remote-book/pdf/remote-book.pdf",
             remote_records.read_text(),
         )
+        self.assertIn(r"Tag \texttt{B00BB00}", remote_records.read_text())
         self.assertIn("label-references/records/remote/remote-book.tex", imports)
 
     def test_fetch_self_catalog_supplies_unprefixed_cross_section_labels(self) -> None:
@@ -385,7 +390,7 @@ class LabelsRefSyncTest(unittest.TestCase):
             "https://www.tianleyang.com/fixture-book/pdf/chapters/c1/s1/s1.pdf",
             local_records,
         )
-        self.assertIn("Theorem 1.1.7 (Tag A00AA00)", local_records)
+        self.assertIn(r"Theorem 1.1.7 (Tag \texttt{A00AA00})", local_records)
         self.assertNotIn("Fixture Book", local_records)
         self.assertNotIn("\\externalnotedocument", chapter_imports)
         self.assertNotIn("\\externalnotedocument", book_imports)

@@ -117,25 +117,25 @@
 
 % unicode-math provides the OpenType math alphabets and must follow mathtools.
 \RequirePackage[warnings-off={mathtools-colon,mathtools-overbracket}]{unicode-math}
-% Use STIX Two for ordinary mathematics, \mathcal, and \mathfrak. Stylistic
-% set 1 supplies a visibly distinct \mathscr alphabet, while the blackboard
-% alphabet comes from Libertinus Math. Latin Modern remains the baseline
-% fallback for smaller TeX installations.
+% Use Libertinus for ordinary mathematics and blackboard bold. Keep the two
+% calligraphic families selected independently: STIX Two for \mathcal and its
+% stylistic set 1 for the visibly different \mathscr alphabet. Latin Modern
+% remains the baseline fallback for smaller TeX installations.
 \setmathfont{latinmodern-math.otf}
-\IfFontExistsTF{STIXTwoMath-Regular.otf}{
-  \setmathfont{STIXTwoMath-Regular.otf}
+\IfFontExistsTF{LibertinusMath-Regular.otf}{%
+  \setmathfont{LibertinusMath-Regular.otf}%
+}{%
+  \IfFontExistsTF{STIXTwoMath-Regular.otf}{%
+    \setmathfont{STIXTwoMath-Regular.otf}%
+  }{}%
+}
+\IfFontExistsTF{STIXTwoMath-Regular.otf}{%
+  \setmathfont{STIXTwoMath-Regular.otf}[range={cal,bfcal}]
   \setmathfont{STIXTwoMath-Regular.otf}[
     range={scr,bfscr},
     StylisticSet=1
   ]
-  \IfFontExistsTF{LibertinusMath-Regular.otf}{%
-    \setmathfont{LibertinusMath-Regular.otf}[range=bb]%
-  }{}%
-}{%
-  \IfFontExistsTF{LibertinusMath-Regular.otf}{%
-    \setmathfont{LibertinusMath-Regular.otf}%
-  }{}%
-}
+}{}
 
 % =============================================================================
 % Bibliography, hyperlinks, and lists
@@ -834,13 +834,14 @@
           {
             #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl
             \c_space_tl (Tag\c_space_tl
-            \exp_not:V \l_nfm_statement_tag_tl)
+            \exp_not:N \texttt { \exp_not:V \l_nfm_statement_tag_tl })
           }
         \tl_set:Nx \l_nfm_statement_external_reference_tl
           {
             [\exp_not:V \l_tmpa_tl,\c_space_tl
             #2\c_space_tl \exp_not:V \l_nfm_statement_number_tl,
-            \c_space_tl Tag\c_space_tl \exp_not:V \l_nfm_statement_tag_tl]
+            \c_space_tl Tag\c_space_tl
+            \exp_not:N \texttt { \exp_not:V \l_nfm_statement_tag_tl }]
           }
         \tl_set:Nn \l_tmpb_tl { nfmpublished }
       }
@@ -1109,13 +1110,14 @@
           {
             #2\c_space_tl \exp_not:V \l_nfm_division_number_tl
             \c_space_tl (Tag\c_space_tl
-            \exp_not:V \l_nfm_division_tag_tl)
+            \exp_not:N \texttt { \exp_not:V \l_nfm_division_tag_tl })
           }
         \tl_set:Nx \l_nfm_division_external_reference_tl
           {
             [\exp_not:V \l_tmpa_tl,\c_space_tl
             #2\c_space_tl \exp_not:V \l_nfm_division_number_tl,
-            \c_space_tl Tag\c_space_tl \exp_not:V \l_nfm_division_tag_tl]
+            \c_space_tl Tag\c_space_tl
+            \exp_not:N \texttt { \exp_not:V \l_nfm_division_tag_tl }]
           }
         \tl_set:Nn \l_tmpb_tl { nfmpublished }
       }

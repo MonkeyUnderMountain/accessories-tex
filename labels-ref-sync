@@ -40,6 +40,7 @@ SAFE_CREF_TYPE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9@_-]*$")
 # example, `construction*.303` under TeX Live 2026).  Anchors are opaque: keep
 # the exact value so imported links reach the matching destination in the PDF.
 SAFE_ANCHOR_RE = re.compile(r"^[0-9A-Za-z*:._@-]*$")
+TAG_TEXT_MARKUP_RE = re.compile(r"\\texttt\s*\{\s*([0-9A-Z]+)\s*\}")
 MAX_CATALOG_BYTES = 10 * 1024 * 1024
 REFERENCE_KIND_NAMES = {
     "chapter": "Chapter",
@@ -465,6 +466,12 @@ def require_plain(value: str, field: str) -> str:
     return value
 
 
+def require_reference_display(value: str, field: str) -> str:
+    """Return catalog text after removing the class's controlled tag markup."""
+    plain = TAG_TEXT_MARKUP_RE.sub(r"\1", value)
+    return require_plain(plain, field)
+
+
 def require_label(value: str) -> str:
     if not value or any(character in value for character in "\\{}%#\r\n"):
         fail(f"Invalid LaTeX label in reference output: {value}")
@@ -484,6 +491,25 @@ def tex_escape(value: str) -> str:
         "^": r"\textasciicircum{}",
     }
     return "".join(replacements.get(character, character) for character in value)
+
+
+def tex_reference_display(record: dict[str, Any]) -> str:
+    """Escape catalog text and restore monospace styling for its known tag."""
+    display = record["display"]
+    tag = record.get("tag")
+    if record.get("status") != "published" or not tag:
+        return tex_escape(display)
+    marker = f"Tag {tag}"
+    marker_start = display.rfind(marker)
+    if marker_start < 0:
+        fail(f"Published label '{record['label']}' display does not contain its tag.")
+    tag_start = marker_start + len("Tag ")
+    tag_end = tag_start + len(tag)
+    return (
+        tex_escape(display[:tag_start])
+        + rf"\texttt{{{tag}}}"
+        + tex_escape(display[tag_end:])
+    )
 
 
 def reference_records(document: NoteDocument, book_title: str) -> list[dict[str, Any]]:
@@ -544,7 +570,7 @@ def reference_records(document: NoteDocument, book_title: str) -> list[dict[str,
             locator = kind + (f" {number}" if number else "")
             display = f"[{book_title}, {locator}]"
             cref_type = "nfmdraft"
-        display = require_plain(display, f"display text for {label}")
+        display = require_reference_display(display, f"display text for {label}")
         page_display = require_plain(page_display, f"page display for {label}")
         if not SAFE_CREF_TYPE_RE.fullmatch(cref_type):
             fail(f"Unsupported cleveref type for {label}: {cref_type}")
@@ -826,7 +852,7 @@ def imported_reference_line(
 ) -> str:
     require_label(label)
     require_http_url(url, f"public URL for {label}")
-    display = tex_escape(record["display"])
+    display = tex_reference_display(record)
     page_display = tex_escape(record["pageDisplay"])
     first = f"[{record['crefType']}][{record['crefCounter']}][]{display}"
     second = f"[page][{record['pageCounter']}][]{page_display}"

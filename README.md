@@ -28,6 +28,12 @@ references between independently compiled notes.
   - [Manifest Configuration](#manifest-configuration)
   - [Local Workflow](#local-workflow)
   - [Release Workflow](#release-workflow)
+- [Implementation Guide](#implementation-guide)
+  - [Reading the Internal Names](#reading-the-internal-names)
+  - [The Tag Pipeline in the Class](#the-tag-pipeline-in-the-class)
+  - [Reference Files Written by the Class](#reference-files-written-by-the-class)
+  - [The `labels-ref-sync` Pipeline](#the-labels-ref-sync-pipeline)
+  - [Responsibility Boundary](#responsibility-boundary)
 - [Management Programs](#management-programs)
 - [Development](#development)
 - [License](#license)
@@ -220,9 +226,9 @@ The open-source default families are:
 | Body text | Libertinus Serif |
 | Headings and interface text | Libertinus Sans |
 | Tags, suggested BibTeX, and code | Source Code Pro, with Libertinus Mono fallback |
-| Ordinary mathematics, `\mathcal`, and `\mathfrak` | STIX Two Math |
+| Ordinary mathematics, `\mathbb`, and `\mathfrak` | Libertinus Math |
+| `\mathcal` | STIX Two Math |
 | `\mathscr` | STIX Two Math stylistic set 1 |
-| `\mathbb` | Libertinus Math |
 
 Latin Modern Math is the baseline fallback when a preferred math font is not
 installed. The book template contains uppercase, lowercase, inline, and
@@ -477,14 +483,15 @@ Configure this repository's released catalog at the top level of `notes.json`:
 {
   "referenceCatalog": {
     "file": "external-labels.json",
-    "downloadUrl": "https://example.com/releases/external-labels.json"
+    "downloadUrl": "https://www.tianleyang.com/algebraic-geometry/external-labels.json"
   }
 }
 ```
 
-`file` is the artifact created by `release`. `downloadUrl` is the address used
-by local `fetch`; it may be a GitHub Release asset or another stable HTTP(S)
-location. It is separate from the public PDF routes stored inside the catalog.
+`file` is the artifact created by `release`. `downloadUrl` is the stable address
+used by local `fetch`. The five note repositories publish this file through
+GitHub Pages beside their PDFs. It is separate from the individual PDF routes
+stored inside the catalog.
 
 Add other note repositories under `externalReferences`:
 
@@ -561,8 +568,200 @@ and a newline-separated list of wrappers compiled in that run:
 Records owned by rebuilt wrappers are replaced or removed; untouched records
 remain in the release. The intended division of responsibility is simple:
 local development performs `fetch` and `sync` and commits their output; CI
-compiles the selected wrappers, runs `release`, and uploads the PDFs plus the
-single catalog artifact.
+compiles the selected wrappers, runs `release`, and deploys the PDFs plus the
+single catalog through GitHub Pages.
+
+The Pages workflow runs automatically on every push to `main` and may also be
+started manually. The first catalog build compiles every wrapper because no
+previous ownership map exists. After that deployment, run
+`labels-ref-sync fetch` locally and commit
+`label-references/catalogs/self.json` together with
+its record files. Once this published ownership map is tracked, later runs
+compare with the last deployed commit and compile only affected wrappers. If
+the self catalog is absent, CI deliberately falls back to a full build.
+
+There is intentionally no GitHub Release for each push. Pages provides one
+predictable current URL, matches the PDF host, and does not create an unbounded
+sequence of release tags. A GitHub Release remains appropriate for an explicit
+versioned or archival snapshot, but it is not needed by routine reference
+synchronization. The workflow has read-only repository-content permission and
+contains no release-creation step, so a successful Pages deployment does not
+create a GitHub Release. Each catalog includes its source Git revision for
+provenance.
+
+## Implementation Guide
+
+This section explains the two longer implementations: the tag subsystem in
+`noteformyself.cls` and the `labels-ref-sync` program. Their public commands are
+small; most of the code preserves old LaTeX syntax, produces useful errors,
+keeps internal and external references different, and treats downloaded data
+as untrusted input.
+
+### Reading the Internal Names
+
+The tag subsystem uses LaTeX3 naming conventions. Once these prefixes and
+suffixes are familiar, the long names describe their own scope and data type:
+
+| Form | Meaning |
+| --- | --- |
+| `nfm` | Private module prefix for `noteformyself` |
+| `g_...` | Global state retained across sections |
+| `l_...` | Local working state for the current entry |
+| `..._tl` | Token list, used like a string |
+| `..._prop` | Property list, used like a dictionary |
+| `..._seq` | Ordered sequence |
+| `..._iow` | Output stream for writing a file |
+| `\function:nn`, `\function:Nn` | Function argument types after the colon |
+
+For example, `\g_nfm_section_tag_tl` is the global current section-tag string,
+while `\l_nfm_statement_label_tl` is the label being processed for one
+statement.
+
+### The Tag Pipeline in the Class
+
+The class performs the following work during one XeLaTeX compilation:
+
+```text
+optional theorem/division argument
+              │
+              ▼
+        parse metadata keys
+              │
+              ▼
+ validate status, tag hierarchy, and registry record
+              │
+              ▼
+ call the original theorem or division command
+              │
+              ▼
+ write local .aux data and external .nfm-xref data
+```
+
+The implementation is divided into these blocks:
+
+1. **Scope state and `\notesetup`.** Global token lists remember the book name,
+   the 1/3/5-character allocation prefixes, and whether the current section is
+   draft or published. `\nfm_validate_context:` checks lengths and parent
+   prefixes whenever the scope changes.
+2. **Diagnostics.** Named messages centralize errors for malformed tags,
+   missing metadata, draft content in a published scope, unknown or retired
+   tags, and registry mismatches. Keeping messages separate makes validation
+   functions shorter and gives authors actionable compilation errors.
+3. **Registry storage.** `\DeclarePublishedTag` and `\DeclareRetiredTag` parse a
+   record and store each field in a property list keyed by the permanent tag.
+   Active records bind tag, book, type, and source label. Retired records also
+   retain their last number and replacement. At the beginning of the document,
+   each immediate replacement is required to exist.
+4. **Statement wrapper.** The original `amsthm` begin/end commands are saved,
+   then each supported environment is redefined through one generic wrapper.
+   `\nfm_statement_parse:n` accepts either an old-fashioned optional title or
+   the `title`, `status`, `tag`, and `label` keys. Preparation validates the
+   entry and builds the visible heading tag. The original environment then
+   performs numbering and typesetting.
+5. **Statement references.** After the original environment advances its
+   counter, `\nfm_make_statement_reference:nn` builds two cleveref displays: a
+   compact local form such as `Theorem 3.1.2 (Tag A01B2C3)` and a book-qualified
+   external form. `\noteformyselfstatementlabel` installs that custom cleveref
+   record immediately before ordinary `\label` data is written.
+6. **Division wrapper.** Chapters, sections, and subsections follow the same
+   parse–validate–write sequence. A chapter updates the current chapter and
+   clears the section; a section updates the current section and publication
+   scope; a subsection is referenceable but does not open a new scope.
+7. **Imported records.** `\NoteImportedReference` installs already-validated
+   label and cleveref records generated by the external program.
+   `\externalnotedocument` provides the simpler direct `.aux`/`.nfm-xref`
+   mechanism, and `\NoteTagRecord` prints an active or frozen retired record.
+
+Published statements are checked against the registry by book, environment
+type, and source label. Their current chapter and section are deliberately not
+compared with the allocation prefix: an unchanged statement may move and keep
+its permanent tag. Deciding whether a mathematical change requires a new tag
+remains an author decision; the class cannot infer semantic equivalence.
+
+### Reference Files Written by the Class
+
+Every normal `\label` writes an ordinary `.aux` entry containing its number,
+page, and exact Hyperref PDF destination. The class also writes a companion
+`.nfm-xref` entry for metadata-aware labels:
+
+| File | Intended consumer | Display style |
+| --- | --- | --- |
+| `<job>.aux` | The same book or direct `xr-hyper` import | No book prefix |
+| `<job>.nfm-xref` | Another independently compiled document | Includes book name |
+
+The PDF destination is opaque: values such as `definition.12` and
+`construction*.303` must be preserved exactly. The destination and page must
+come from the PDF being linked, whereas the displayed number may come from the
+complete book build.
+
+### The `labels-ref-sync` Pipeline
+
+`labels-ref-sync` runs outside LaTeX and knows about every wrapper listed in
+`notes.json`. Its source follows the data from parsing to command dispatch:
+
+1. **Constants and data models.** Regular expressions define the accepted
+   manifest, label, counter, URL, and PDF-anchor syntax. `NoteDocument`,
+   `RemoteRepository`, and `ReferenceCatalog` hold normalized configuration.
+2. **Manifest parsing.** `documents()` converts the nested book/chapter/section
+   tree into one ordered list of independently compilable wrappers. Paths,
+   identities, public PDF routes, catalog settings, and remote prefixes are
+   validated before any generated file is changed.
+3. **Restricted TeX parsing.** `parse_commands()` and `parse_braced()` read only
+   the expected `\newlabel` and `\NoteExternalReference` records. General TeX
+   is never evaluated. Display text and anchors pass strict allowlists; the only
+   recognized formatting markup is the class-generated monospace tag.
+4. **Record extraction.** `reference_records()` joins each ordinary label with
+   its cleveref record and optional external display. It extracts the number,
+   page, anchor, status, and tag into plain Python dictionaries.
+5. **Ownership resolution.** A label may appear in its section, chapter, and
+   book builds without being a duplicate. `combine_reference_occurrences()`
+   chooses the smallest independently published PDF as owner—normally the
+   section—but prefers the book build for canonical numbering and display.
+   Two occurrences in equally small independent sections are a real duplicate
+   and fail.
+6. **Catalog validation.** `validate_catalog()` requires a supported schema,
+   unique document IDs, one occurrence of each source label, absolute HTTP(S)
+   PDF URLs, valid anchors, and a tag on every published record.
+7. **Materialization.** Validated JSON is converted into small trusted
+   `\NoteImportedReference` shards. Text is escaped before TeX is written;
+   published tag values are restored in the configured monospace font.
+8. **Per-wrapper imports.** `target_import_text()` creates the short
+   `external-labels.tex` beside every wrapper. A section excludes itself, a
+   chapter excludes labels already contained in that chapter, and a book
+   excludes its whole repository. Remote repositories are always imported with
+   their configured namespace.
+9. **Commands.** `fetch` downloads and validates self/remote catalogs before
+   replacing tracked snapshots; `sync` regenerates shards and imports;
+   `validate` proves tracked generated files are current; and `release` creates
+   the public catalog from compiled outputs.
+
+For an incremental release, the previous catalog is the ownership baseline.
+Records from recompiled wrappers replace or remove their old versions, while
+unaffected records retain the page, anchor, and URL belonging to the previously
+deployed PDF. This is why a push can rebuild one section without invalidating
+links to every other section.
+
+### Responsibility Boundary
+
+The class and program intentionally enforce different invariants:
+
+| Responsibility | `noteformyself.cls` | `labels-ref-sync` |
+| --- | :---: | :---: |
+| Typeset tags and customize `\cref` | Yes | No |
+| Validate one published entry against a loaded registry | Yes | No |
+| Write `.aux` and `.nfm-xref` | Yes | No |
+| Read all independently compiled wrappers | No | Yes |
+| Detect duplicate labels across sections | No | Yes |
+| Choose PDF owner, page, anchor, and URL | No | Yes |
+| Download and namespace other repositories | No | Yes |
+| Allocate globally unique tags | No | Not yet |
+| Detect mathematical/semantic change | No | No |
+
+The remaining tag-management stage is a global allocator/registry tool. It
+must reserve book, chapter, section, subsection, and entry tags across all five
+repositories; reject reuse; and validate retirement chains and cycles. The
+current class consumes that registry, while `labels-ref-sync` distributes the
+resulting references.
 
 ## Management Programs
 
