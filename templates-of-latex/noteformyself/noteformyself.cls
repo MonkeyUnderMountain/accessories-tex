@@ -14,6 +14,7 @@
 %                  \DeclareRetiredTag, \NoteTagRecord
 %   References:    \externalnotedocument, \NoteExternalReference,
 %                  \NoteImportedReference
+%   Label bridge:  \labelNFM{full-source-label}
 
 % =============================================================================
 % Class options and base class
@@ -353,6 +354,10 @@
 
 \ExplSyntaxOn
 
+% Expose metadata labels to static tools while evaluating to the plain label.
+% The label keys below expand this command before storing or exporting it.
+\NewExpandableDocumentCommand \labelNFM { m } {#1}
+
 % Current publication scope. Tags are stable identifiers, not display numbers.
 \tl_new:N \g_nfm_scope_status_tl
 \tl_new:N \g_nfm_book_tag_tl
@@ -676,7 +681,8 @@
     status / published .code:n =
       { \tl_set:Nn \l_nfm_statement_status_tl { published } },
     tag .tl_set:N = \l_nfm_statement_tag_tl,
-    label .tl_set:N = \l_nfm_statement_label_tl,
+    label .code:n =
+      { \tl_set:Nx \l_nfm_statement_label_tl {#1} },
   }
 
 \cs_new_protected:Npn \nfm_statement_reset:
@@ -978,7 +984,8 @@
     status / published .code:n =
       { \tl_set:Nn \l_nfm_division_status_tl { published } },
     tag .tl_set:N = \l_nfm_division_tag_tl,
-    label .tl_set:N = \l_nfm_division_label_tl,
+    label .code:n =
+      { \tl_set:Nx \l_nfm_division_label_tl {#1} },
   }
 
 \cs_new_protected:Npn \nfm_division_reset:
