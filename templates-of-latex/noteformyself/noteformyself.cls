@@ -801,7 +801,7 @@
           {
             \cs_set_protected:Npx \noteformyselfstatementtag
               {
-                \nobreakspace
+                \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_statement_tag_tl }) }
@@ -810,7 +810,7 @@
           {
             \cs_set_protected:Npx \noteformyselfstatementtag
               {
-                \nobreakspace
+                \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_statement_tag_tl }) }
@@ -1043,7 +1043,7 @@
           {
             \cs_set_protected:Npx \noteformyselfdivisiontag
               {
-                \nobreakspace
+                \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_division_tag_tl }) }
@@ -1052,7 +1052,7 @@
           {
             \cs_set_protected:Npx \noteformyselfdivisiontag
               {
-                \nobreakspace
+                \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_division_tag_tl }) }

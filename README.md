@@ -315,6 +315,8 @@ allocation hierarchy.
   book composed from published sections.
 - A draft entry may omit its tag. A supplied draft tag is provisional, appears
   as `Draft tag ...` in its heading, and is not globally reserved.
+- A visible heading tag stays together as one unit, but may move as a whole to
+  the next line when it does not fit after the title.
 - A published entry requires both a tag and a source label.
 - Every statement inside a published scope must explicitly use
   `status=published`; an accidental draft statement makes the build fail.
