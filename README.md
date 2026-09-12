@@ -49,7 +49,8 @@ accessories-tex/
 ├── notation.tex                         shared mathematical notation
 ├── packages-pdflatex.tex                older shared pdfLaTeX setup
 ├── tests/
-│   └── test_labels_ref_sync.py
+│   ├── test_labels_ref_sync.py
+│   └── test_manage_notes.py
 ├── templates-of-latex/
 │   ├── noteformyself/
 │   │   ├── noteformyself.cls
@@ -102,7 +103,8 @@ Each note repository follows the same independently compilable hierarchy:
 The book wrapper builds the complete note, a chapter wrapper builds one
 chapter, and a section wrapper builds one section. A section's `text.tex` is
 the authoritative content included by all three wrappers. `notes.json` records
-stable IDs, ordering, wrapper paths, statuses, and public PDF routes.
+stable IDs, ordering, wrapper paths, statuses, structural tags and labels, and
+public PDF routes.
 
 ## `noteformyself` 2.0
 
@@ -123,6 +125,7 @@ loads the packages needed for:
 - `biblatex` bibliographies;
 - `hyperref`, `xr-hyper`, and `cleveref` references;
 - `tcolorbox` statement styles;
+- automatic draft watermarks;
 - lists, long tables, footnotes, and source-code listings.
 
 Xy-pic is not loaded in 2.0. New commutative diagrams should use `tikz-cd`.
@@ -156,6 +159,10 @@ For example:
 ```
 
 The default mode is `section`; the default publication status is `draft`.
+Selecting `status=draft` on `\documentclass` automatically loads
+`draftwatermark` for the complete output. A later `\notesetup{status=...}` call
+changes publication validation scope but does not toggle the document-level
+watermark.
 
 ### Quick Start
 
@@ -795,7 +802,19 @@ repository; `MANAGE_NOTES_ROOT` is accepted as a fallback.
 ### `manage-notes`
 
 `manage-notes` maintains the `notes.json` hierarchy and generated wrapper
-regions. Its commands are:
+regions. Generated wrappers use explicit `sectionlevel` and `status` class
+options, plain titles without a `(draft)` suffix, and key-value chapter and
+section metadata. The manifest's `published` field selects `status=draft` or
+`status=published`; `finished` remains an independent progress indicator.
+
+Chapter and section records receive stable source labels when synchronized.
+Draft structural tags are optional, but published items require
+hierarchy-aware tags: one character for the book, three for a chapter, and five
+for a section. Generated labels are retained when an item is renamed or moved.
+When moving a tagged section to another chapter, pass `move --tag ...` with a
+replacement tag that extends the destination chapter tag.
+
+The commands are:
 
 ```text
 list
@@ -809,6 +828,19 @@ retitle
 set-status
 ```
 
+Supply a tag or override the generated source label when creating an item:
+
+```console
+manage-notes set-status 0 --tag A
+manage-notes create chapter "Schemes" --tag A01
+manage-notes create section 1 "Affine schemes" --tag A01B2
+manage-notes set-status 1.1 --published 1 --finished 1 --tag A01B2
+```
+
+Running `manage-notes sync` migrates existing wrappers: it adds the class status
+and managed `\notesetup` block, removes legacy `draftwatermark` package lines,
+and rewrites managed divisions with `\labelNFM{...}` metadata.
+
 It must run in the context of a consuming note repository. Set
 `MANAGE_NOTES_ROOT=/path/to/repository` when automatic submodule detection is
 not available. Use `--dry-run` for a preview and `--yes` only when an intended
@@ -816,10 +848,10 @@ mutation would otherwise ask for confirmation.
 
 ## Development
 
-Run the synchronizer tests from this repository root:
+Run all management and synchronizer tests from this repository root:
 
 ```console
-python3 -m unittest -v tests.test_labels_ref_sync
+python3 -m unittest discover -s tests -v
 ```
 
 Build all class examples from their directory:

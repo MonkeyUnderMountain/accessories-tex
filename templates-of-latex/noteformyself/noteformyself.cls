@@ -93,6 +93,13 @@
 \RequirePackage{longtable} % Multipage tables.
 \RequirePackage{amsmath,amsthm,amssymb,amsfonts} % Mathematics and theorems.
 \RequirePackage[dvipsnames]{xcolor} % Named colors used by boxes and links.
+% A draft class option marks the complete output. Later \notesetup status
+% changes affect publication validation only and do not toggle this watermark.
+\makeatletter
+\ifdefstring{\noteformyself@status}{draft}{%
+  \RequirePackage{draftwatermark}%
+}{}%
+\makeatother
 \RequirePackage{tikz} % Cover drawing and general vector graphics.
 \RequirePackage{tikz-cd} % TikZ-based commutative diagrams.
 \RequirePackage{mathtools} % Extensions and corrections for amsmath.

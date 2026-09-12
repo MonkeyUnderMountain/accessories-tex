@@ -18,10 +18,17 @@ from typing import Literal, NoReturn, TypedDict, cast
 
 Binary = Literal[0, 1]
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+TAG_RE = re.compile(r"^[0-9A-Z]+$")
 SECTION_IN_BODY_RE = re.compile(r"^\s*\\section(?:\[[^\]]*\])?\{", re.MULTILINE)
 DOCUMENTCLASS_RE = re.compile(r"^\s*\\documentclass(?:\[|\{)", re.MULTILINE)
+NOTEFORMYSELF_DOCUMENTCLASS_RE = re.compile(
+    r"^(?P<indent>[ \t]*)\\documentclass"
+    r"(?:\[(?P<options>[^\]\n]*)\])?"
+    r"\{noteformyself\}(?P<suffix>[ \t]*(?:%.*)?)$",
+    re.MULTILINE,
+)
 TITLE_RE = re.compile(r"^\\title\{.*\}$", re.MULTILINE)
-WATERMARK_RE = re.compile(
+LEGACY_WATERMARK_RE = re.compile(
     r"^\s*%?\s*\\usepackage\{draftwatermark\}(?:\s*%.*)?$"
 )
 ENGINE_HEAD = "% !TeX program = xelatex"
@@ -32,7 +39,7 @@ class StatusRecord(TypedDict):
     finished: Binary
 
 
-class SectionRecord(TypedDict):
+class SectionFields(TypedDict):
     id: str
     title: str
     order: int
@@ -41,7 +48,12 @@ class SectionRecord(TypedDict):
     status: StatusRecord
 
 
-class ChapterRecord(TypedDict):
+class SectionRecord(SectionFields, total=False):
+    tag: str
+    label: str
+
+
+class ChapterFields(TypedDict):
     id: str
     title: str
     order: int
@@ -51,13 +63,22 @@ class ChapterRecord(TypedDict):
     sections: list[SectionRecord]
 
 
-class BookRecord(TypedDict):
+class ChapterRecord(ChapterFields, total=False):
+    tag: str
+    label: str
+
+
+class BookFields(TypedDict):
     id: str
     title: str
     tex: str
     url: str
     status: StatusRecord
     chapters: list[ChapterRecord]
+
+
+class BookRecord(BookFields, total=False):
+    tag: str
 
 
 class BuildRecord(TypedDict):
@@ -296,10 +317,14 @@ def normalize(data: ManifestRecord) -> None:
         chapter["order"] = chapter_order
         chapter["tex"] = chapter_tex(chapter["id"])
         chapter["url"] = chapter_url(chapter["id"])
+        chapter.setdefault("label", f"chap:{chapter['id']}")
         for section_order, section in enumerate(chapter["sections"], start=1):
             section["order"] = section_order
             section["tex"] = section_tex(chapter["id"], section["id"])
             section["url"] = section_url(chapter["id"], section["id"])
+            section.setdefault(
+                "label", f"sec:{chapter['id']}:{section['id']}"
+            )
 
 
 def validate_manifest(data: object) -> None:
@@ -321,7 +346,10 @@ def validate_manifest(data: object) -> None:
 
     book_id = require_slug_value(book.get("id"), "book.id")
     require_title_value(book.get("title"), "book.title")
-    require_status_value(book.get("status"), "book.status")
+    book_status = require_status_value(book.get("status"), "book.status")
+    book_tag = require_optional_tag(book.get("tag"), "book.tag", 1)
+    if book_status["published"] == 1 and book_tag is None:
+        fail("book is published but has no tag.")
     if book.get("tex") != f"{book_id}.tex":
         fail("book.tex does not match book.id.")
     if book.get("url") != f"pdf/{book_id}.pdf":
@@ -334,6 +362,10 @@ def validate_manifest(data: object) -> None:
     seen_chapters: set[str] = set()
     seen_tex = {cast(str, book["tex"])}
     seen_urls = {cast(str, book["url"])}
+    seen_labels: set[str] = set()
+    seen_tags: set[str] = set()
+    if book_tag is not None:
+        check_unique(book_tag, seen_tags, "structural tag")
     for chapter_order, chapter_value in enumerate(chapters, start=1):
         if not isinstance(chapter_value, dict):
             fail(f"Chapter {chapter_order} must be an object.")
@@ -345,7 +377,31 @@ def validate_manifest(data: object) -> None:
             fail(f"Duplicate chapter ID: {chapter_id}")
         seen_chapters.add(chapter_id)
         require_title_value(chapter.get("title"), f"chapter {chapter_id}.title")
-        require_status_value(chapter.get("status"), f"chapter {chapter_id}.status")
+        chapter_status = require_status_value(
+            chapter.get("status"), f"chapter {chapter_id}.status"
+        )
+        chapter_tag = require_optional_tag(
+            chapter.get("tag"), f"chapter {chapter_id}.tag", 3
+        )
+        chapter_label_value = require_optional_label(
+            chapter.get("label"), f"chapter {chapter_id}.label"
+        )
+        require_published_tag(
+            chapter_status,
+            chapter_tag,
+            f"chapter {chapter_id}",
+        )
+        if chapter_tag is not None:
+            check_unique(chapter_tag, seen_tags, "structural tag")
+            if book_tag is None:
+                fail(f"Chapter {chapter_id} has a tag but book.tag is missing.")
+            if not chapter_tag.startswith(book_tag):
+                fail(
+                    f"Chapter tag {chapter_tag} does not begin with "
+                    f"book tag {book_tag}."
+                )
+        if chapter_label_value is not None:
+            check_unique(chapter_label_value, seen_labels, "source label")
         if chapter.get("order") != chapter_order:
             fail(f"Chapter order is not consecutive at {chapter_id}.")
         if chapter.get("tex") != chapter_tex(chapter_id):
@@ -373,9 +429,37 @@ def validate_manifest(data: object) -> None:
             require_title_value(
                 section.get("title"), f"section {chapter_id}/{section_id}.title"
             )
-            require_status_value(
+            section_status = require_status_value(
                 section.get("status"), f"section {chapter_id}/{section_id}.status"
             )
+            section_tag = require_optional_tag(
+                section.get("tag"),
+                f"section {chapter_id}/{section_id}.tag",
+                5,
+            )
+            section_label_value = require_optional_label(
+                section.get("label"),
+                f"section {chapter_id}/{section_id}.label",
+            )
+            require_published_tag(
+                section_status,
+                section_tag,
+                f"section {chapter_id}/{section_id}",
+            )
+            if section_tag is not None:
+                check_unique(section_tag, seen_tags, "structural tag")
+                if chapter_tag is None:
+                    fail(
+                        f"Section {chapter_id}/{section_id} has a tag but its "
+                        "chapter tag is missing."
+                    )
+                if not section_tag.startswith(chapter_tag):
+                    fail(
+                        f"Section tag {section_tag} does not begin with "
+                        f"chapter tag {chapter_tag}."
+                    )
+            if section_label_value is not None:
+                check_unique(section_label_value, seen_labels, "source label")
             if section.get("order") != section_order:
                 fail(
                     f"Section order is not consecutive at "
@@ -420,6 +504,41 @@ def require_status_value(value: object, field: str) -> StatusRecord:
     return make_status(status["published"], status["finished"])
 
 
+def require_optional_tag(value: object, field: str, length: int) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or len(value) != length
+        or not TAG_RE.fullmatch(value)
+    ):
+        fail(f"{field} must contain exactly {length} uppercase letters or digits.")
+    return value
+
+
+def require_optional_label(value: object, field: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value
+        or any(character in value for character in "\\{}%#\t\r\n")
+    ):
+        fail(f"{field} must be a nonempty plain LaTeX label.")
+    return value
+
+
+def require_published_tag(
+    status: StatusRecord,
+    tag: str | None,
+    field: str,
+) -> None:
+    if status["published"] == 0:
+        return
+    if tag is None:
+        fail(f"{field} is published but has no tag.")
+
+
 def check_unique(value: str, seen: set[str], description: str) -> None:
     if value in seen:
         fail(f"Duplicate {description}: {value}")
@@ -449,59 +568,195 @@ def set_first_line(content: str, expected: str) -> str:
     return "\n".join(lines) + ("\n" if content.endswith("\n") else "")
 
 
-def latex_title(title: str, status: StatusRecord) -> str:
-    displayed = f"{title} (draft)" if status["finished"] == 0 else title
-    return tex_escape(displayed)
+def document_status(status: StatusRecord) -> str:
+    """Map publication state to the class's draft/published vocabulary."""
+    return "published" if status["published"] == 1 else "draft"
 
 
-def set_title(content: str, title: str, status: StatusRecord) -> str:
-    escaped = latex_title(title, status)
+def set_title(content: str, title: str) -> str:
+    escaped = tex_escape(title)
     if len(TITLE_RE.findall(content)) != 1:
         fail("Expected exactly one one-line \\title{...} command.")
     return TITLE_RE.sub(lambda _: rf"\title{{{escaped}}}", content, count=1)
 
 
-def watermark_package_line(status: StatusRecord) -> str:
-    return (
-        r"\usepackage{draftwatermark}"
-        if status["finished"] == 0
-        else r"% \usepackage{draftwatermark}"
+def set_documentclass(
+    content: str, sectionlevel: str, status: StatusRecord
+) -> str:
+    matches = list(NOTEFORMYSELF_DOCUMENTCLASS_RE.finditer(content))
+    if len(matches) != 1:
+        fail("Expected exactly one noteformyself document-class line.")
+    match = matches[0]
+    existing = [
+        option.strip()
+        for option in (match.group("options") or "").split(",")
+        if option.strip()
+    ]
+    retained = [
+        option
+        for option in existing
+        if option.partition("=")[0].strip() not in {"sectionlevel", "status"}
+    ]
+    options = [
+        f"sectionlevel={sectionlevel}",
+        f"status={document_status(status)}",
+        *retained,
+    ]
+    replacement = (
+        f'{match.group("indent")}\\documentclass'
+        f'[{",".join(options)}]{{noteformyself}}{match.group("suffix")}'
     )
+    return content[: match.start()] + replacement + content[match.end() :]
 
 
-def set_watermark(content: str, status: StatusRecord) -> str:
-    package_line = watermark_package_line(status)
+def remove_legacy_watermark(content: str) -> str:
     begin_text = "% manage-notes:begin watermark"
     end_text = "% manage-notes:end watermark"
     lines = content.splitlines()
-    has_begin = any(line.strip() == begin_text for line in lines)
-    has_end = any(line.strip() == end_text for line in lines)
-    if has_begin or has_end:
-        return replace_managed_block(content, "watermark", [package_line])
+    begin_matches = [
+        index for index, line in enumerate(lines) if line.strip() == begin_text
+    ]
+    end_matches = [
+        index for index, line in enumerate(lines) if line.strip() == end_text
+    ]
+    if len(begin_matches) != len(end_matches):
+        fail("Found an incomplete managed watermark block.")
+    if begin_matches:
+        if len(begin_matches) != 1:
+            fail("Expected at most one managed watermark block.")
+        begin = begin_matches[0]
+        end = end_matches[0]
+        if begin >= end:
+            fail("Found an invalid managed watermark block.")
+        updated = lines[:begin] + lines[end + 1 :]
+        return "\n".join(updated) + ("\n" if content.endswith("\n") else "")
 
     matches = [
-        index for index, line in enumerate(lines) if WATERMARK_RE.fullmatch(line)
+        index
+        for index, line in enumerate(lines)
+        if LEGACY_WATERMARK_RE.fullmatch(line)
+    ]
+    if not matches:
+        return content
+    if len(matches) != 1:
+        fail("Expected at most one legacy draftwatermark package line.")
+    index = matches[0]
+    updated = lines[:index] + lines[index + 1 :]
+    return "\n".join(updated) + ("\n" if content.endswith("\n") else "")
+
+
+def chapter_label(chapter: ChapterRecord) -> str:
+    return chapter.get("label", f"chap:{chapter['id']}")
+
+
+def section_label(chapter: ChapterRecord, section: SectionRecord) -> str:
+    return section.get("label", f"sec:{chapter['id']}:{section['id']}")
+
+
+def render_notesetup(
+    book: BookRecord,
+    status: StatusRecord,
+    *,
+    chapter: ChapterRecord | None = None,
+) -> list[str]:
+    fields = [f"book={{{tex_escape(book['title'])}}}"]
+    if book.get("tag"):
+        fields.append(f"book-tag={book['tag']}")
+    if chapter is not None and chapter.get("tag"):
+        fields.append(f"chapter-tag={chapter['tag']}")
+    fields.append(f"status={document_status(status)}")
+    return [
+        r"\notesetup{",
+        *(
+            f"  {field}{',' if index < len(fields) - 1 else ''}"
+            for index, field in enumerate(fields)
+        ),
+        "}",
+    ]
+
+
+def set_notesetup(
+    content: str,
+    book: BookRecord,
+    status: StatusRecord,
+    *,
+    chapter: ChapterRecord | None = None,
+) -> str:
+    body = render_notesetup(book, status, chapter=chapter)
+    begin_text = "% manage-notes:begin setup"
+    end_text = "% manage-notes:end setup"
+    lines = content.splitlines()
+    has_begin = any(line.strip() == begin_text for line in lines)
+    has_end = any(line.strip() == end_text for line in lines)
+    if has_begin != has_end:
+        fail("Found an incomplete managed setup block.")
+    if has_begin:
+        return replace_managed_block(content, "setup", body)
+
+    matches = [
+        index
+        for index, line in enumerate(lines)
+        if NOTEFORMYSELF_DOCUMENTCLASS_RE.fullmatch(line)
     ]
     if len(matches) != 1:
-        fail("Expected exactly one draftwatermark package line.")
+        fail("Expected exactly one noteformyself document-class line.")
     index = matches[0]
     updated = (
-        lines[:index]
-        + [begin_text, package_line, end_text]
+        lines[: index + 1]
+        + [begin_text, *body, end_text]
         + lines[index + 1 :]
     )
     return "\n".join(updated) + ("\n" if content.endswith("\n") else "")
 
 
+def render_division(
+    command: str,
+    title: str,
+    status: StatusRecord,
+    label: str,
+    tag: str | None,
+    *,
+    indent: str,
+) -> list[str]:
+    fields = [f"status={document_status(status)}"]
+    if tag:
+        fields.append(f"tag={tag}")
+    fields.append(rf"label=\labelNFM{{{label}}}")
+    return [
+        rf"{indent}\{command}[",
+        *(
+            f"{indent}  {field}{',' if index < len(fields) - 1 else ''}"
+            for index, field in enumerate(fields)
+        ),
+        rf"{indent}]{{{tex_escape(title)}}}",
+    ]
+
+
 def render_book(data: ManifestRecord) -> list[str]:
     lines: list[str] = []
     for chapter_index, chapter in enumerate(data["book"]["chapters"]):
-        title = latex_title(chapter["title"], chapter["status"])
-        lines.append(rf"    \chapter{{{title}}}")
+        lines.extend(
+            render_division(
+                "chapter",
+                chapter["title"],
+                chapter["status"],
+                chapter_label(chapter),
+                chapter.get("tag"),
+                indent="    ",
+            )
+        )
         for section in chapter["sections"]:
-            section_title = latex_title(section["title"], section["status"])
             body_path = f"chapters/{chapter['id']}/{section['id']}/text.tex"
-            lines.append(rf"        \section{{{section_title}}}")
+            lines.extend(
+                render_division(
+                    "section",
+                    section["title"],
+                    section["status"],
+                    section_label(chapter, section),
+                    section.get("tag"),
+                    indent="        ",
+                )
+            )
             lines.append(rf"        \input{{{body_path}}}")
         if chapter_index != len(data["book"]["chapters"]) - 1:
             lines.append("")
@@ -511,16 +766,31 @@ def render_book(data: ManifestRecord) -> list[str]:
 def render_chapter(chapter: ChapterRecord) -> list[str]:
     lines: list[str] = []
     for section in chapter["sections"]:
-        title = latex_title(section["title"], section["status"])
-        lines.append(rf"    \section{{{title}}}")
+        lines.extend(
+            render_division(
+                "section",
+                section["title"],
+                section["status"],
+                section_label(chapter, section),
+                section.get("tag"),
+                indent="    ",
+            )
+        )
         lines.append(rf"    \input{{{section['id']}/text.tex}}")
     return lines
 
 
-def render_section(section: SectionRecord) -> list[str]:
-    return [
-        rf"    \section{{{latex_title(section['title'], section['status'])}}}"
-    ]
+def render_section(
+    chapter: ChapterRecord, section: SectionRecord
+) -> list[str]:
+    return render_division(
+        "section",
+        section["title"],
+        section["status"],
+        section_label(chapter, section),
+        section.get("tag"),
+        indent="    ",
+    )
 
 
 def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
@@ -533,8 +803,10 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
     try:
         content = replace_managed_block(content, "chapters", render_book(data))
         content = set_first_line(content, ENGINE_HEAD)
-        content = set_title(content, book["title"], book["status"])
-        content = set_watermark(content, book["status"])
+        content = set_documentclass(content, "book", book["status"])
+        content = set_notesetup(content, book, book["status"])
+        content = set_title(content, book["title"])
+        content = remove_legacy_watermark(content)
     except ManageNotesError as error:
         fail(f"{book['tex']}: {error}")
     updates[book_path] = content
@@ -548,10 +820,17 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
                     content, "sections", render_chapter(chapter)
                 )
                 content = set_first_line(content, ENGINE_HEAD)
-                content = set_title(
-                    content, chapter["title"], chapter["status"]
+                content = set_documentclass(
+                    content, "chapter", chapter["status"]
                 )
-                content = set_watermark(content, chapter["status"])
+                content = set_notesetup(
+                    content,
+                    book,
+                    chapter["status"],
+                    chapter=chapter,
+                )
+                content = set_title(content, chapter["title"])
+                content = remove_legacy_watermark(content)
             except ManageNotesError as error:
                 fail(f"{chapter['tex']}: {error}")
             updates[chapter_path] = content
@@ -568,13 +847,22 @@ def prepared_updates(data: ManifestRecord) -> dict[Path, str]:
                 content = read_text(section_path)
                 try:
                     content = replace_managed_block(
-                        content, "section", render_section(section)
+                        content,
+                        "section",
+                        render_section(chapter, section),
                     )
                     content = set_first_line(content, ENGINE_HEAD)
-                    content = set_title(
-                        content, section["title"], section["status"]
+                    content = set_documentclass(
+                        content, "section", section["status"]
                     )
-                    content = set_watermark(content, section["status"])
+                    content = set_notesetup(
+                        content,
+                        book,
+                        section["status"],
+                        chapter=chapter,
+                    )
+                    content = set_title(content, section["title"])
+                    content = remove_legacy_watermark(content)
                 except ManageNotesError as error:
                     fail(f"{section['tex']}: {error}")
                 updates[section_path] = content
@@ -663,18 +951,17 @@ def synchronize(data: ManifestRecord, dry_run: bool) -> None:
         print("No synchronization changes were needed.")
 
 
-def chapter_template(
-    chapter_id: str, title: str, status: StatusRecord
-) -> str:
-    escaped = latex_title(title, status)
-    watermark = watermark_package_line(status)
+def chapter_template(book: BookRecord, chapter: ChapterRecord) -> str:
+    escaped = tex_escape(chapter["title"])
+    setup = "\n".join(render_notesetup(book, chapter["status"], chapter=chapter))
+    class_status = document_status(chapter["status"])
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
 % !BIB program = biber
-\documentclass[sectionlevel=chapter]{{noteformyself}}
-% manage-notes:begin watermark
-{watermark}
-% manage-notes:end watermark
+\documentclass[sectionlevel=chapter,status={class_status}]{{noteformyself}}
+% manage-notes:begin setup
+{setup}
+% manage-notes:end setup
 
 \input{{../../accessories/notation.tex}}
 \addbibresource{{../../refs.bib}}
@@ -688,35 +975,39 @@ def chapter_template(
 \setCJKfamilyfont{{lxgwwenkai}}{{LXGW WenKai}}
 \coversentence{{\CJKfamily{{lxgwwenkai}}阿巴阿巴!}}
 \coverimage{{}}
-\covertitlefont{{TeX Gyre Termes}}
+% \covertitlefont{{TeX Gyre Termes}}
 
 \begin{{document}}
 
-    \maketitle
+\maketitle
 
-    \tableofcontents
+\tableofcontents
 
-    % manage-notes:begin sections
-    % manage-notes:end sections
+% manage-notes:begin sections
+% manage-notes:end sections
 
-    \printbibliography[heading=bibintoc, title={{References}}]
+\printbibliography[heading=bibintoc, title={{References}}]
 
 \end{{document}}
 """
 
 
 def section_template(
-    section_id: str, title: str, status: StatusRecord
+    book: BookRecord,
+    chapter: ChapterRecord,
+    section: SectionRecord,
 ) -> str:
-    escaped = latex_title(title, status)
-    watermark = watermark_package_line(status)
+    escaped = tex_escape(section["title"])
+    setup = "\n".join(render_notesetup(book, section["status"], chapter=chapter))
+    division = "\n".join(render_section(chapter, section))
+    class_status = document_status(section["status"])
     return rf"""% !TeX program = xelatex
 % !TeX encoding = UTF-8
 % !BIB program = biber
-\documentclass{{noteformyself}}
-% manage-notes:begin watermark
-{watermark}
-% manage-notes:end watermark
+\documentclass[sectionlevel=section,status={class_status}]{{noteformyself}}
+% manage-notes:begin setup
+{setup}
+% manage-notes:end setup
 
 \newcommand{{\Yang}}[1]{{\textcolor{{red}}{{Yang: #1}}}}
 \input{{../../../accessories/notation.tex}}
@@ -729,15 +1020,15 @@ def section_template(
 
 \begin{{document}}
 
-    \maketitle
+\maketitle
 
-    % manage-notes:begin section
-    \section{{{escaped}}}
-    % manage-notes:end section
+% manage-notes:begin section
+{division}
+% manage-notes:end section
 
-    \input{{text.tex}}
+\input{{text.tex}}
 
-    % \printbibliography[heading=bibintoc, title={{References}}]
+% \printbibliography[heading=bibintoc, title={{References}}]
 
 \end{{document}}
 """
@@ -752,26 +1043,31 @@ def create_file(path: Path, content: str, dry_run: bool) -> None:
 
 
 def ensure_chapter_files(
-    chapter: ChapterRecord, dry_run: bool, *, new_only: bool = False
+    book: BookRecord,
+    chapter: ChapterRecord,
+    dry_run: bool,
+    *,
+    new_only: bool = False,
 ) -> None:
     directory = safe_chapter_path(chapter["id"])
     wrapper = directory / f"{chapter['id']}.tex"
     if new_only:
         create_file(
             wrapper,
-            chapter_template(chapter["id"], chapter["title"], chapter["status"]),
+            chapter_template(book, chapter),
             dry_run,
         )
         return
     if not wrapper.exists():
         create_file(
             wrapper,
-            chapter_template(chapter["id"], chapter["title"], chapter["status"]),
+            chapter_template(book, chapter),
             dry_run,
         )
 
 
 def ensure_section_files(
+    book: BookRecord,
     chapter: ChapterRecord,
     section: SectionRecord,
     dry_run: bool,
@@ -784,9 +1080,7 @@ def ensure_section_files(
     files = (
         (
             wrapper,
-            section_template(
-                section["id"], section["title"], section["status"]
-            ),
+            section_template(book, chapter, section),
         ),
         (body, f"% !TeX root = {section['id']}.tex\n"),
     )
@@ -816,9 +1110,16 @@ def create_chapter(args: argparse.Namespace) -> None:
         "url": chapter_url(chapter_id),
         "status": status,
         "sections": [],
+        "label": require_optional_label(args.label, "New chapter label")
+        or f"chap:{chapter_id}",
     }
+    tag = require_optional_tag(args.tag, "New chapter tag", 3)
+    if tag is not None:
+        chapter["tag"] = tag
     chapters.insert(order - 1, chapter)
-    ensure_chapter_files(chapter, args.dry_run, new_only=True)
+    normalize(data)
+    validate_manifest(data)
+    ensure_chapter_files(data["book"], chapter, args.dry_run, new_only=True)
     save_and_sync(
         data,
         dry_run=args.dry_run,
@@ -847,9 +1148,18 @@ def create_section(args: argparse.Namespace) -> None:
         "tex": section_tex(chapter["id"], section_id),
         "url": section_url(chapter["id"], section_id),
         "status": status,
+        "label": require_optional_label(args.label, "New section label")
+        or f"sec:{chapter['id']}:{section_id}",
     }
+    tag = require_optional_tag(args.tag, "New section tag", 5)
+    if tag is not None:
+        section["tag"] = tag
     sections.insert(order - 1, section)
-    ensure_section_files(chapter, section, args.dry_run, new_only=True)
+    normalize(data)
+    validate_manifest(data)
+    ensure_section_files(
+        data["book"], chapter, section, args.dry_run, new_only=True
+    )
     save_and_sync(
         data,
         dry_run=args.dry_run,
@@ -1009,7 +1319,10 @@ def move_item(args: argparse.Namespace) -> None:
         args.destination
     )
     chapters = data["book"]["chapters"]
+    directory_move: tuple[Path, Path] | None = None
     if source_section is None:
+        if args.tag is not None:
+            fail("--tag is only available when moving a section.")
         if destination_section_order is not None:
             fail("Move a chapter to a chapter order such as 4.")
         new_order = require_order(destination_chapter_order, len(chapters))
@@ -1049,15 +1362,24 @@ def move_item(args: argparse.Namespace) -> None:
         confirm_dirty_target(args.item, old_directory, args)
         source_chapter["sections"].pop(source_section["order"] - 1)
         destination["sections"].insert(new_order - 1, section)
-        if not args.dry_run and source_chapter is not destination:
-            new_directory.parent.mkdir(parents=True, exist_ok=True)
-            old_directory.rename(new_directory)
+        if args.tag is not None:
+            section["tag"] = cast(
+                str,
+                require_optional_tag(args.tag, "section tag", 5),
+            )
+        if source_chapter is not destination:
+            directory_move = (old_directory, new_directory)
         description = (
             f"move section {args.item} to "
             f"{destination_chapter_order}.{new_order}"
         )
 
     normalize(data)
+    validate_manifest(data)
+    if directory_move is not None and not args.dry_run:
+        old_directory, new_directory = directory_move
+        new_directory.parent.mkdir(parents=True, exist_ok=True)
+        old_directory.rename(new_directory)
     save_and_sync(
         data,
         dry_run=args.dry_run,
@@ -1086,15 +1408,24 @@ def retitle_item(args: argparse.Namespace) -> None:
 
 def set_item_status(args: argparse.Namespace) -> None:
     data = load_manifest()
-    if args.published is None and args.finished is None:
-        fail("Set at least one of --published or --finished.")
+    if (
+        args.published is None
+        and args.finished is None
+        and args.tag is None
+        and args.label is None
+    ):
+        fail("Set at least one of --published, --finished, --tag, or --label.")
     if args.item == "0":
         target: BookRecord | ChapterRecord | SectionRecord = data["book"]
         kind = "book"
+        tag_length = 1
+        if args.label is not None:
+            fail("The book has a tag but no division source label.")
     else:
         chapter, section = select_item(data, args.item)
         target = section if section is not None else chapter
         kind = "section" if section is not None else "chapter"
+        tag_length = 5 if section is not None else 3
     confirm_dirty_target(args.item, target_path(data, args.item), args)
     current = target["status"]
     status = make_status(
@@ -1102,11 +1433,21 @@ def set_item_status(args: argparse.Namespace) -> None:
         current["finished"] if args.finished is None else args.finished,
     )
     target["status"] = status
+    if args.tag is not None:
+        target["tag"] = cast(
+            str,
+            require_optional_tag(args.tag, f"{kind} tag", tag_length),
+        )
+    if args.label is not None:
+        target["label"] = cast(
+            str,
+            require_optional_label(args.label, f"{kind} label"),
+        )
     save_and_sync(
         data,
         dry_run=args.dry_run,
         description=(
-            f"set {kind} {args.item} status to "
+            f"update {kind} {args.item} metadata: "
             f"published={status['published']}, finished={status['finished']}"
         ),
     )
@@ -1200,7 +1541,10 @@ def validate_source_tree(data: ManifestRecord) -> None:
 
 
 def validate_command(data: ManifestRecord) -> None:
+    normalize(data)
     validate_manifest(data)
+    if manifest_text(data) != read_text(MANIFEST):
+        fail(f"{MANIFEST_NAME} is not normalized. Run manage-notes sync.")
     validate_source_tree(data)
     print(f"{MANIFEST_NAME} and all managed TeX files are valid and synchronized.")
 
@@ -1239,12 +1583,16 @@ def build_parser() -> argparse.ArgumentParser:
     create_ch.add_argument("published", nargs="?", default=0, type=binary_arg)
     create_ch.add_argument("finished", nargs="?", default=0, type=binary_arg)
     create_ch.add_argument("order", nargs="?", type=int)
+    create_ch.add_argument("--tag", help="optional three-character chapter tag")
+    create_ch.add_argument("--label", help="stable chapter source label")
     create_sec = create_types.add_parser("section")
     create_sec.add_argument("chapter", help="parent chapter order, such as 2")
     create_sec.add_argument("title")
     create_sec.add_argument("published", nargs="?", default=0, type=binary_arg)
     create_sec.add_argument("finished", nargs="?", default=0, type=binary_arg)
     create_sec.add_argument("order", nargs="?", type=int)
+    create_sec.add_argument("--tag", help="optional five-character section tag")
+    create_sec.add_argument("--label", help="stable section source label")
 
     delete = subparsers.add_parser("delete", help="delete a chapter or section")
     delete.add_argument("item", help="chapter or section order, such as 2 or 2.3")
@@ -1274,15 +1622,23 @@ def build_parser() -> argparse.ArgumentParser:
         "destination",
         help="new chapter order or section position, such as 4 or 4.2",
     )
+    move.add_argument(
+        "--tag",
+        help="replace a section tag when moving it to another chapter",
+    )
 
     retitle = subparsers.add_parser("retitle", help="change a human-readable title")
     retitle.add_argument("item", help="0 for the book, or a chapter/section order")
     retitle.add_argument("title")
 
-    status = subparsers.add_parser("set-status", help="change note status")
+    status = subparsers.add_parser(
+        "set-status", help="change status or structural metadata"
+    )
     status.add_argument("item", help="0 for the book, or a chapter/section order")
     status.add_argument("--published", type=binary_arg, choices=(0, 1))
     status.add_argument("--finished", type=binary_arg, choices=(0, 1))
+    status.add_argument("--tag", help="set the stable structural tag")
+    status.add_argument("--label", help="set a chapter or section source label")
     return parser
 
 
@@ -1300,6 +1656,11 @@ def prompt_optional_order() -> int | None:
     if not value.isdigit():
         fail("Order must be a positive integer.")
     return int(value)
+
+
+def prompt_optional(label: str) -> str | None:
+    value = input(f"{label} [none]: ").strip()
+    return value or None
 
 
 def prompt_binary(label: str, default: Binary = 0) -> Binary:
@@ -1346,6 +1707,8 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         published=prompt_binary("Published"),
                         finished=prompt_binary("Finished"),
                         order=prompt_optional_order(),
+                        tag=prompt_optional("Chapter tag"),
+                        label=None,
                     )
                     create_chapter(args)
                 else:
@@ -1356,6 +1719,8 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         published=prompt_binary("Published"),
                         finished=prompt_binary("Finished"),
                         order=prompt_optional_order(),
+                        tag=prompt_optional("Section tag"),
+                        label=None,
                     )
                     create_section(args)
             elif choice == "d":
@@ -1407,6 +1772,7 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         destination=prompt_required(
                             "New position (for example 4 or 4.2)"
                         ),
+                        tag=None,
                     )
                 )
             elif choice == "s":
@@ -1433,6 +1799,8 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         finished=prompt_binary(
                             "Finished", current["finished"]
                         ),
+                        tag=None,
+                        label=None,
                     )
                 )
             else:
