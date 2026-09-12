@@ -301,13 +301,12 @@ Tags use uppercase ASCII letters and digits:
 | 5 | Section | `A01B2` |
 | 7 | Subsection or theorem-like entry | `A01B2C3` |
 
-Each child begins with its parent's complete tag and appends two base-36
-characters. Subsections are referenceable items, not a new allocation scope;
-they share a section's seven-character pool with theorem-like entries.
-
-The prefix records allocation origin. If an unchanged theorem moves, it keeps
-its original tag even though the current chapter, section, and theorem number
-change.
+The length identifies the kind of item. An allocator may use parent prefixes to
+record where a permanent tag was first assigned, but the live document does
+not require a tag to begin with its current parent's tag. If a chapter,
+section, or theorem moves, it keeps its original tag even though its current
+location and number change. Registry records may still retain the original
+allocation hierarchy.
 
 ### Status and Publication Rules
 
@@ -381,8 +380,9 @@ optional short title:
 Traditional `\section[Short title]{Long title}` syntax and starred divisions
 remain available. Chapter and section metadata update the current tag/status
 scope. A subsection is referenceable but does not open a new status scope.
-Published division tags are checked for length and parent prefix; the external
-allocator remains the authority for their global uniqueness.
+Published division tags are checked for length, but not against the current
+parent tag. The external allocator remains the authority for permanent-tag
+uniqueness and allocation history.
 
 ### Registry and Retired Tags
 
@@ -647,7 +647,7 @@ optional theorem/division argument
  parse metadata keys and expand \labelNFM
               │
               ▼
- validate status, tag hierarchy, and registry record
+ validate status, tag format, and registry record
               │
               ▼
  call the original theorem or division command
@@ -659,9 +659,9 @@ optional theorem/division argument
 The implementation is divided into these blocks:
 
 1. **Scope state and `\notesetup`.** Global token lists remember the book name,
-   the 1/3/5-character allocation prefixes, and whether the current section is
-   draft or published. `\nfm_validate_context:` checks lengths and parent
-   prefixes whenever the scope changes.
+   the current 1/3/5-character tags, and whether the current section is draft
+   or published. `\nfm_validate_context:` checks tag lengths whenever the scope
+   changes; it does not compare a moved item with its current parent.
 2. **Diagnostics.** Named messages centralize errors for malformed tags,
    missing metadata, draft content in a published scope, unknown or retired
    tags, and registry mismatches. Keeping messages separate makes validation
@@ -808,11 +808,11 @@ section metadata. The manifest's `published` field selects `status=draft` or
 `status=published`; `finished` remains an independent progress indicator.
 
 Chapter and section records receive stable source labels when synchronized.
-Draft structural tags are optional, but published items require
-hierarchy-aware tags: one character for the book, three for a chapter, and five
-for a section. Generated labels are retained when an item is renamed or moved.
-When moving a tagged section to another chapter, pass `move --tag ...` with a
-replacement tag that extends the destination chapter tag.
+New chapters automatically receive the placeholder tag `000`, and new sections
+receive `00000`; creation does not prompt for either tag. The manager validates
+tag length and characters, but does not require parent tags, compare prefixes,
+or require placeholder tags to be unique. Tags and generated labels are both
+retained when an item is renamed or moved.
 
 The commands are:
 
@@ -828,13 +828,14 @@ retitle
 set-status
 ```
 
-Supply a tag or override the generated source label when creating an item:
+Creation works without tag input. Use `--tag` only to override a placeholder,
+or use `set-status --tag` later:
 
 ```console
-manage-notes set-status 0 --tag A
-manage-notes create chapter "Schemes" --tag A01
-manage-notes create section 1 "Affine schemes" --tag A01B2
-manage-notes set-status 1.1 --published 1 --finished 1 --tag A01B2
+manage-notes create chapter "Schemes"
+manage-notes create section 1 "Affine schemes"
+manage-notes set-status 1 --tag A01
+manage-notes set-status 1.1 --published 1 --finished 1 --tag Q72M4
 ```
 
 Running `manage-notes sync` migrates existing wrappers: it adds the class status

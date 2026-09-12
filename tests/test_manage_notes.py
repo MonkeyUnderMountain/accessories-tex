@@ -109,6 +109,8 @@ class ManageNotesTest(unittest.TestCase):
         chapter = data["book"]["chapters"][0]
         section = chapter["sections"][0]
         self.assertEqual(chapter["status"], status(0, 1))
+        self.assertEqual(chapter["tag"], "000")
+        self.assertEqual(section["tag"], "00000")
         self.assertEqual(chapter["label"], "chap:first-chapter")
         self.assertEqual(section["label"], "sec:first-chapter:first-section")
 
@@ -137,6 +139,8 @@ class ManageNotesTest(unittest.TestCase):
             self.assertIn("% manage-notes:begin setup", source)
 
         self.assertIn("label=\\labelNFM{chap:first-chapter}", book_source)
+        self.assertIn("tag=000", book_source)
+        self.assertIn("tag=00000", book_source)
         self.assertIn(
             "label=\\labelNFM{sec:first-chapter:first-section}",
             book_source,
@@ -158,7 +162,7 @@ class ManageNotesTest(unittest.TestCase):
             "tex": "chapters/foundations/foundations.tex",
             "url": "pdf/chapters/foundations/foundations.pdf",
             "status": status(1, 1),
-            "tag": "A01",
+            "tag": "Z99",
             "sections": [
                 {
                     "id": "first-results",
@@ -167,7 +171,7 @@ class ManageNotesTest(unittest.TestCase):
                     "tex": "chapters/foundations/first-results/first-results.tex",
                     "url": "pdf/chapters/foundations/first-results/first-results.pdf",
                     "status": status(1, 1),
-                    "tag": "A01B2",
+                    "tag": "Q12W3",
                 }
             ],
         }
@@ -226,23 +230,24 @@ class ManageNotesTest(unittest.TestCase):
             self.assertNotIn("(draft)", source)
             self.assertIn("book-tag=A", source)
 
-        self.assertIn("tag=A01", book_source)
+        self.assertIn("tag=Z99", book_source)
         self.assertIn("label=\\labelNFM{chap:foundations}", book_source)
-        self.assertIn("tag=A01B2", section_source)
+        self.assertIn("tag=Q12W3", section_source)
         self.assertIn(
             "label=\\labelNFM{sec:foundations:first-results}",
             section_source,
         )
 
-    def test_published_chapter_requires_a_tag_before_creating_files(self) -> None:
-        self.manifest["book"]["tag"] = "A"
-        self.write_manifest()
-        result = self.run_manage(
-            "create", "chapter", "Published Chapter", "1", "1", check=False
-        )
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("published but has no tag", result.stderr)
-        self.assertFalse((self.root / "chapters/published-chapter").exists())
+    def test_published_chapter_receives_the_default_tag(self) -> None:
+        self.run_manage("create", "chapter", "Published Chapter", "1", "1")
+
+        chapter = self.load_manifest()["book"]["chapters"][0]
+        self.assertEqual(chapter["tag"], "000")
+        wrapper = (
+            self.root / "chapters/published-chapter/published-chapter.tex"
+        ).read_text(encoding="utf-8")
+        self.assertIn("status=published", wrapper)
+        self.assertIn("chapter-tag=000", wrapper)
 
     def test_rename_preserves_generated_source_label(self) -> None:
         self.run_manage("create", "chapter", "First Chapter")
@@ -254,33 +259,24 @@ class ManageNotesTest(unittest.TestCase):
         book_source = (self.root / "fixture-book.tex").read_text(encoding="utf-8")
         self.assertIn(f"label=\\labelNFM{{{original}}}", book_source)
 
-    def test_reparent_preserves_label_and_accepts_a_replacement_tag(self) -> None:
-        self.manifest["book"]["tag"] = "A"
-        self.write_manifest()
-        self.run_manage("create", "chapter", "First Chapter", "--tag", "A01")
-        self.run_manage("create", "chapter", "Second Chapter", "--tag", "A02")
-        self.run_manage(
-            "create",
-            "section",
-            "1",
-            "Moving Section",
-            "--tag",
-            "A01B2",
-        )
+    def test_reparent_preserves_the_section_tag_and_label(self) -> None:
+        self.run_manage("create", "chapter", "First Chapter")
+        self.run_manage("create", "chapter", "Second Chapter")
+        self.run_manage("create", "section", "1", "Moving Section")
         before = self.load_manifest()["book"]["chapters"][0]["sections"][0]
 
-        self.run_manage("move", "1.1", "2.1", "--tag", "A02B2")
+        self.run_manage("move", "1.1", "2.1")
         self.run_manage("validate")
 
         after = self.load_manifest()["book"]["chapters"][1]["sections"][0]
         self.assertEqual(after["label"], before["label"])
-        self.assertEqual(after["tag"], "A02B2")
+        self.assertEqual(after["tag"], "00000")
         wrapper = (
             self.root
             / "chapters/second-chapter/moving-section/moving-section.tex"
         ).read_text(encoding="utf-8")
-        self.assertIn("chapter-tag=A02", wrapper)
-        self.assertIn("tag=A02B2", wrapper)
+        self.assertIn("chapter-tag=000", wrapper)
+        self.assertIn("tag=00000", wrapper)
 
 
 if __name__ == "__main__":

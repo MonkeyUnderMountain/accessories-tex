@@ -474,19 +474,6 @@
       { \nfm_validate_code:Nnn \g_nfm_chapter_tag_tl { 3 } { chapter } }
     \tl_if_blank:VF \g_nfm_section_tag_tl
       { \nfm_validate_code:Nnn \g_nfm_section_tag_tl { 5 } { section } }
-    \tl_if_blank:VF \g_nfm_chapter_tag_tl
-      {
-        \tl_if_blank:VF \g_nfm_book_tag_tl
-          { \nfm_validate_prefix:NNnn \g_nfm_chapter_tag_tl \g_nfm_book_tag_tl { book } { 1 } }
-      }
-    \tl_if_blank:VF \g_nfm_section_tag_tl
-      {
-        \tl_if_blank:VF \g_nfm_chapter_tag_tl
-          {
-            \nfm_validate_prefix:NNnn
-              \g_nfm_section_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 }
-          }
-      }
   }
 
 \NewDocumentCommand \notesetup { m }
@@ -1021,31 +1008,15 @@
   {
     \nfm_division_require:Nnn \l_nfm_division_tag_tl {#2} { tag }
     \nfm_division_require:Nnn \l_nfm_division_label_tl {#2} { label }
-    \nfm_require_context:Nn \g_nfm_book_tag_tl { book-tag }
     \nfm_require_context:Nn \g_nfm_book_name_tl { book }
     \str_case:nn {#1}
       {
         { chapter }
-          {
-            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 3 } { chapter }
-            \nfm_validate_prefix:NNnn
-              \l_nfm_division_tag_tl \g_nfm_book_tag_tl { book } { 1 }
-          }
+          { \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 3 } { chapter } }
         { section }
-          {
-            \nfm_require_context:Nn \g_nfm_chapter_tag_tl { chapter-tag }
-            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 5 } { section }
-            \nfm_validate_prefix:NNnn
-              \l_nfm_division_tag_tl \g_nfm_chapter_tag_tl { chapter } { 3 }
-          }
+          { \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 5 } { section } }
         { subsection }
-          {
-            \nfm_require_context:Nn \g_nfm_chapter_tag_tl { chapter-tag }
-            \nfm_require_context:Nn \g_nfm_section_tag_tl { section-tag }
-            \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 7 } { subsection }
-            \nfm_validate_prefix:NNnn
-              \l_nfm_division_tag_tl \g_nfm_section_tag_tl { section } { 5 }
-          }
+          { \nfm_validate_code:Nnn \l_nfm_division_tag_tl { 7 } { subsection } }
       }
   }
 

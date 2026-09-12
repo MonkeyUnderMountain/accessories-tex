@@ -363,9 +363,6 @@ def validate_manifest(data: object) -> None:
     seen_tex = {cast(str, book["tex"])}
     seen_urls = {cast(str, book["url"])}
     seen_labels: set[str] = set()
-    seen_tags: set[str] = set()
-    if book_tag is not None:
-        check_unique(book_tag, seen_tags, "structural tag")
     for chapter_order, chapter_value in enumerate(chapters, start=1):
         if not isinstance(chapter_value, dict):
             fail(f"Chapter {chapter_order} must be an object.")
@@ -391,15 +388,6 @@ def validate_manifest(data: object) -> None:
             chapter_tag,
             f"chapter {chapter_id}",
         )
-        if chapter_tag is not None:
-            check_unique(chapter_tag, seen_tags, "structural tag")
-            if book_tag is None:
-                fail(f"Chapter {chapter_id} has a tag but book.tag is missing.")
-            if not chapter_tag.startswith(book_tag):
-                fail(
-                    f"Chapter tag {chapter_tag} does not begin with "
-                    f"book tag {book_tag}."
-                )
         if chapter_label_value is not None:
             check_unique(chapter_label_value, seen_labels, "source label")
         if chapter.get("order") != chapter_order:
@@ -446,18 +434,6 @@ def validate_manifest(data: object) -> None:
                 section_tag,
                 f"section {chapter_id}/{section_id}",
             )
-            if section_tag is not None:
-                check_unique(section_tag, seen_tags, "structural tag")
-                if chapter_tag is None:
-                    fail(
-                        f"Section {chapter_id}/{section_id} has a tag but its "
-                        "chapter tag is missing."
-                    )
-                if not section_tag.startswith(chapter_tag):
-                    fail(
-                        f"Section tag {section_tag} does not begin with "
-                        f"chapter tag {chapter_tag}."
-                    )
             if section_label_value is not None:
                 check_unique(section_label_value, seen_labels, "source label")
             if section.get("order") != section_order:
@@ -1113,9 +1089,9 @@ def create_chapter(args: argparse.Namespace) -> None:
         "label": require_optional_label(args.label, "New chapter label")
         or f"chap:{chapter_id}",
     }
-    tag = require_optional_tag(args.tag, "New chapter tag", 3)
-    if tag is not None:
-        chapter["tag"] = tag
+    chapter["tag"] = (
+        require_optional_tag(args.tag, "New chapter tag", 3) or "000"
+    )
     chapters.insert(order - 1, chapter)
     normalize(data)
     validate_manifest(data)
@@ -1151,9 +1127,9 @@ def create_section(args: argparse.Namespace) -> None:
         "label": require_optional_label(args.label, "New section label")
         or f"sec:{chapter['id']}:{section_id}",
     }
-    tag = require_optional_tag(args.tag, "New section tag", 5)
-    if tag is not None:
-        section["tag"] = tag
+    section["tag"] = (
+        require_optional_tag(args.tag, "New section tag", 5) or "00000"
+    )
     sections.insert(order - 1, section)
     normalize(data)
     validate_manifest(data)
@@ -1321,8 +1297,6 @@ def move_item(args: argparse.Namespace) -> None:
     chapters = data["book"]["chapters"]
     directory_move: tuple[Path, Path] | None = None
     if source_section is None:
-        if args.tag is not None:
-            fail("--tag is only available when moving a section.")
         if destination_section_order is not None:
             fail("Move a chapter to a chapter order such as 4.")
         new_order = require_order(destination_chapter_order, len(chapters))
@@ -1362,11 +1336,6 @@ def move_item(args: argparse.Namespace) -> None:
         confirm_dirty_target(args.item, old_directory, args)
         source_chapter["sections"].pop(source_section["order"] - 1)
         destination["sections"].insert(new_order - 1, section)
-        if args.tag is not None:
-            section["tag"] = cast(
-                str,
-                require_optional_tag(args.tag, "section tag", 5),
-            )
         if source_chapter is not destination:
             directory_move = (old_directory, new_directory)
         description = (
@@ -1583,7 +1552,9 @@ def build_parser() -> argparse.ArgumentParser:
     create_ch.add_argument("published", nargs="?", default=0, type=binary_arg)
     create_ch.add_argument("finished", nargs="?", default=0, type=binary_arg)
     create_ch.add_argument("order", nargs="?", type=int)
-    create_ch.add_argument("--tag", help="optional three-character chapter tag")
+    create_ch.add_argument(
+        "--tag", help="override the default 000 chapter tag"
+    )
     create_ch.add_argument("--label", help="stable chapter source label")
     create_sec = create_types.add_parser("section")
     create_sec.add_argument("chapter", help="parent chapter order, such as 2")
@@ -1591,7 +1562,9 @@ def build_parser() -> argparse.ArgumentParser:
     create_sec.add_argument("published", nargs="?", default=0, type=binary_arg)
     create_sec.add_argument("finished", nargs="?", default=0, type=binary_arg)
     create_sec.add_argument("order", nargs="?", type=int)
-    create_sec.add_argument("--tag", help="optional five-character section tag")
+    create_sec.add_argument(
+        "--tag", help="override the default 00000 section tag"
+    )
     create_sec.add_argument("--label", help="stable section source label")
 
     delete = subparsers.add_parser("delete", help="delete a chapter or section")
@@ -1622,11 +1595,6 @@ def build_parser() -> argparse.ArgumentParser:
         "destination",
         help="new chapter order or section position, such as 4 or 4.2",
     )
-    move.add_argument(
-        "--tag",
-        help="replace a section tag when moving it to another chapter",
-    )
-
     retitle = subparsers.add_parser("retitle", help="change a human-readable title")
     retitle.add_argument("item", help="0 for the book, or a chapter/section order")
     retitle.add_argument("title")
@@ -1656,11 +1624,6 @@ def prompt_optional_order() -> int | None:
     if not value.isdigit():
         fail("Order must be a positive integer.")
     return int(value)
-
-
-def prompt_optional(label: str) -> str | None:
-    value = input(f"{label} [none]: ").strip()
-    return value or None
 
 
 def prompt_binary(label: str, default: Binary = 0) -> Binary:
@@ -1707,7 +1670,7 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         published=prompt_binary("Published"),
                         finished=prompt_binary("Finished"),
                         order=prompt_optional_order(),
-                        tag=prompt_optional("Chapter tag"),
+                        tag=None,
                         label=None,
                     )
                     create_chapter(args)
@@ -1719,7 +1682,7 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         published=prompt_binary("Published"),
                         finished=prompt_binary("Finished"),
                         order=prompt_optional_order(),
-                        tag=prompt_optional("Section tag"),
+                        tag=None,
                         label=None,
                     )
                     create_section(args)
@@ -1772,7 +1735,6 @@ def interactive_loop(global_args: argparse.Namespace) -> None:
                         destination=prompt_required(
                             "New position (for example 4 or 4.2)"
                         ),
-                        tag=None,
                     )
                 )
             elif choice == "s":
