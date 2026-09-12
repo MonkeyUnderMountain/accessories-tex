@@ -26,14 +26,14 @@
 \section[
   status=published,
   tag=0SE01,
-  label=sec:section-preview
+  label=\labelNFM{sec:section-preview}
 ]{A published standalone section}
 
 \begin{definition}[
   title={Readable typography},
   status=published,
   tag=0SE0101,
-  label=def:section-preview
+  label=\labelNFM{def:section-preview}
 ]
   A template is readable when its visual hierarchy supports the mathematics
   without competing with it.
@@ -45,7 +45,7 @@ The local references are \cref{sec:section-preview} and
 \subsection[
   status=published,
   tag=0SE0102,
-  label=subsec:section-preview
+  label=\labelNFM{subsec:section-preview}
 ]{A tagged subsection}
 
 Section mode uses a centered page number and no header or footer rules.
@@ -56,68 +56,89 @@ Section mode uses a centered page number and no header or footer rules.
 \section[
   status=draft,
   tag=0SE02,
-  label=sec:section-gallery
+  label=\labelNFM{sec:section-gallery}
 ]{A draft environment gallery}
 
-\subsection[tag=0SE0201,label=subsec:section-gallery]{Every statement style}
+\subsection[
+  tag=0SE0201,
+  label=\labelNFM{subsec:section-gallery}
+]{Every statement style}
 
 \begin{slogan}
   Short independently compiled sections should still share the book's voice.
 \end{slogan}
 
-\begin{mainthm}[title={Standalone coherence},label=mainthm:section]
+\begin{mainthm}[
+  title={Standalone coherence},
+  label=\labelNFM{mainthm:section}
+]
   A standalone section can use the same source as its chapter and book builds.
 \end{mainthm}
 
-\begin{definition}[label=def:section-draft]
+\begin{definition}[label=\labelNFM{def:section-draft}]
   A chain complex is a sequence \((C_n,d_n)\) with
   \(d_{n-1}\circ d_n=0\).
 \end{definition}
 
-\begin{proposition}[title={Cycles modulo boundaries},label=prop:section]
+\begin{proposition}[
+  title={Cycles modulo boundaries},
+  label=\labelNFM{prop:section}
+]
   The quotient \(\ker d_n/\operatorname{im}d_{n+1}\) is an abelian group.
 \end{proposition}
 
-\begin{theorem}[label=thm:section]
+\begin{theorem}[label=\labelNFM{thm:section}]
   A short exact sequence of complexes induces a long exact sequence in
   homology.
 \end{theorem}
 
-\begin{lemma}[title={Connecting map},label=lem:section]
+\begin{lemma}[
+  title={Connecting map},
+  label=\labelNFM{lem:section}
+]
   The connecting morphism is independent of the chosen lift.
 \end{lemma}
 
-\begin{corollary}[label=cor:section]
+\begin{corollary}[label=\labelNFM{cor:section}]
   A quasi-isomorphism induces isomorphisms on every homology group.
 \end{corollary}
 
-\begin{conjecture}[label=conj:section]
+\begin{conjecture}[label=\labelNFM{conj:section}]
   An analogous statement holds in the intended derived enhancement.
 \end{conjecture}
 
-\begin{question}[title={Naturality},label=ques:section]
+\begin{question}[
+  title={Naturality},
+  label=\labelNFM{ques:section}
+]
   How does the connecting map vary with a morphism of short exact sequences?
 \end{question}
 
-\begin{example}[tag=0SE0202,label=eg:section]
+\begin{example}[tag=0SE0202,label=\labelNFM{eg:section}]
   The complex concentrated in degree zero recovers an ordinary module. Its
   displayed draft tag does not appear in \cref{eg:section}.
 \end{example}
 
-\begin{exercise}[label=ex:section]
+\begin{exercise}[label=\labelNFM{ex:section}]
   Write down the connecting map and verify that it is a homomorphism.
 \end{exercise}
 
-\begin{construction}[title={Mapping cone},label=constr:section]
+\begin{construction}[
+  title={Mapping cone},
+  label=\labelNFM{constr:section}
+]
   For \(f\colon C_\bullet\to D_\bullet\), set
   \(\operatorname{Cone}(f)_n=D_n\oplus C_{n-1}\) with the usual differential.
 \end{construction}
 
-\begin{notation}[label=not:section]
+\begin{notation}[label=\labelNFM{not:section}]
   Write \(H_n(C_\bullet)\) for the \(n\)-th homology group.
 \end{notation}
 
-\begin{remark}[title={Shared numbering},label=rmk:section]
+\begin{remark}[
+  title={Shared numbering},
+  label=\labelNFM{rmk:section}
+]
   Every ordinary theorem-like environment participates in one local sequence.
 \end{remark}
 
@@ -128,7 +149,7 @@ Section mode uses a centered page number and no header or footer rules.
     Select a representative in the middle complex.
   \end{step}
 
-  \begin{claim}[label=claim:section]
+  \begin{claim}[label=\labelNFM{claim:section}]
     Changing the lift changes the result by a boundary.
   \end{claim}
 
@@ -149,7 +170,10 @@ References include \cref{mainthm:section}, \cref{thm:section},
 % =============================================================================
 % Compact feature preview
 % =============================================================================
-\subsection[tag=0SE0203,label=subsec:section-features]{Mathematics and code}
+\subsection[
+  tag=0SE0203,
+  label=\labelNFM{subsec:section-features}
+]{Mathematics and code}
 
 Inline mathematics remains calm in prose:
 \(\mathcal{L}\otimes\mathscr{F}\in D^b(X)\) and

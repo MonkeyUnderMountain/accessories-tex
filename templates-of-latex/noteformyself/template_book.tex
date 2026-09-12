@@ -43,26 +43,26 @@
 \chapter[
   status=published,
   tag=0AB,
-  label=chap:published
+  label=\labelNFM{chap:published}
 ]{The first tagged chapter}
 
 \section[
   status=published,
   tag=0ABCD,
-  label=sec:published
+  label=\labelNFM{sec:published}
 ]{A published section}
 
 \subsection[
   status=published,
   tag=0ABCDS1,
-  label=subsec:published
+  label=\labelNFM{subsec:published}
 ]{Published statements}
 
 \begin{theorem}[
   title={Fundamental comparison},
   status=published,
   tag=0ABCDEF,
-  label=thm:published-comparison
+  label=\labelNFM{thm:published-comparison}
 ]
   If two objects satisfy the same universal property, they are uniquely
   isomorphic in the appropriate sense.
@@ -71,7 +71,7 @@
 \begin{definition}[
   status=published,
   tag=0ABCDE1,
-  label=def:published-object
+  label=\labelNFM{def:published-object}
 ]
   A published object is an entry whose semantic content and permanent tag have
   been recorded in the global registry.
@@ -81,7 +81,7 @@
 \begin{theorem}[
   status=published,
   tag=0ABCDE2,
-  label=thm:untitled-published
+  label=\labelNFM{thm:untitled-published}
 ]
   A permanent tag does not require the statement to have a title.
 \end{theorem}
@@ -96,7 +96,7 @@ The old identifier remains queryable as the frozen record
   short-title={Mathematical type families},
   status=published,
   tag=0ABCDS2,
-  label=subsec:math-specimen
+  label=\labelNFM{subsec:math-specimen}
 ]{Mathematical alphabets}
 
 The inline specimen
@@ -147,7 +147,7 @@ The decorative and semantic families are
 \chapter[
   status=draft,
   tag=0CD,
-  label=chap:mixed-draft
+  label=\labelNFM{chap:mixed-draft}
 ]{A draft chapter}
 
 % The proposition below was allocated under 0ABEF and retained its tag after
@@ -155,20 +155,23 @@ The decorative and semantic families are
 \section[
   status=draft,
   tag=0CDEF,
-  label=sec:mixed-draft
+  label=\labelNFM{sec:mixed-draft}
 ]{Every theorem-style environment}
 
 \subsection[
   status=draft,
   tag=0CDEFS1,
-  label=subsec:mixed-draft
+  label=\labelNFM{subsec:mixed-draft}
 ]{Statements, proofs, steps, and cases}
 
 \begin{slogan}
   Stable identity belongs to the mathematics, not to its current page number.
 \end{slogan}
 
-\begin{mainthm}[title={The gallery theorem},label=mainthm:book]
+\begin{mainthm}[
+  title={The gallery theorem},
+  label=\labelNFM{mainthm:book}
+]
   Every supported statement style remains readable in long-form notes.
 \end{mainthm}
 
@@ -176,51 +179,66 @@ The decorative and semantic families are
   title={A moved statement},
   status=published,
   tag=0ABEF01,
-  label=prop:published-in-draft
+  label=\labelNFM{prop:published-in-draft}
 ]
   A mathematically unchanged published entry keeps its tag after it moves.
 \end{proposition}
 
-\begin{theorem}[label=thm:untagged-draft]
+\begin{theorem}[label=\labelNFM{thm:untagged-draft}]
   This draft theorem has no provisional tag, so its reference contains only
   the current theorem number.
 \end{theorem}
 
-\begin{lemma}[title={Local cancellation},label=lem:book]
+\begin{lemma}[
+  title={Local cancellation},
+  label=\labelNFM{lem:book}
+]
   If \(g\circ f\) and \(g\) are isomorphisms, then \(f\) is an isomorphism.
 \end{lemma}
 
-\begin{corollary}[label=cor:book]
+\begin{corollary}[label=\labelNFM{cor:book}]
   An identity morphism is an isomorphism.
 \end{corollary}
 
-\begin{conjecture}[title={A plausible extension},label=conj:book]
+\begin{conjecture}[
+  title={A plausible extension},
+  label=\labelNFM{conj:book}
+]
   The same comparison principle persists in the derived setting.
 \end{conjecture}
 
-\begin{question}[label=ques:book]
+\begin{question}[label=\labelNFM{ques:book}]
   Which hypotheses can be weakened without changing the conclusion?
 \end{question}
 
-\begin{example}[tag=0CDEF01,label=eg:first-provisional]
+\begin{example}[tag=0CDEF01,label=\labelNFM{eg:first-provisional}]
   This valid-looking draft tag is visible but is not globally reserved.
 \end{example}
 
-\begin{exercise}[title={Check the universal property},label=ex:book]
+\begin{exercise}[
+  title={Check the universal property},
+  label=\labelNFM{ex:book}
+]
   Prove the uniqueness assertion in \cref{thm:published-comparison}.
 \end{exercise}
 
-\begin{construction}[title={A fiber product},label=constr:book]
+\begin{construction}[
+  title={A fiber product},
+  label=\labelNFM{constr:book}
+]
   For maps \(X\to S\leftarrow Y\), form \(X\times_S Y\) by its universal
   property.
 \end{construction}
 
-\begin{notation}[label=not:book]
+\begin{notation}[label=\labelNFM{not:book}]
   Write \(D^b(X)\) for the bounded derived category of coherent sheaves on
   \(X\).
 \end{notation}
 
-\begin{remark}[tag=0CDEF01,label=rmk:duplicate-provisional]
+\begin{remark}[
+  tag=0CDEF01,
+  label=\labelNFM{rmk:duplicate-provisional}
+]
   Duplicate provisional tags are permitted in a draft scope and must be
   resolved before publication.
 \end{remark}
@@ -232,7 +250,10 @@ The decorative and semantic families are
     Choose the canonical maps supplied by the two universal properties.
   \end{step}
 
-  \begin{claim}[title={The composites are identities},label=claim:book]
+  \begin{claim}[
+    title={The composites are identities},
+    label=\labelNFM{claim:book}
+  ]
     Both composites agree with the corresponding identity morphisms.
   \end{claim}
 
@@ -260,7 +281,7 @@ Draft references omit their provisional tags: \cref{chap:mixed-draft},
   short-title={Typesetting features},
   status=draft,
   tag=0CDGH,
-  label=sec:book-features
+  label=\labelNFM{sec:book-features}
 ]{Typesetting features}
 
 An aligned equation can carry an ordinary label:
@@ -316,9 +337,12 @@ available without loading extra packages in the note source.
   \section[
     status=published,
     tag=0CDIJ,
-    label=sec:negative-missing-tag
+    label=\labelNFM{sec:negative-missing-tag}
   ]{Negative test: missing published tag}
-  \begin{theorem}[status=published,label=thm:missing-published-tag]
+  \begin{theorem}[
+    status=published,
+    label=\labelNFM{thm:missing-published-tag}
+  ]
     This entry must make a publication build fail.
   \end{theorem}
 \fi
@@ -327,7 +351,7 @@ available without loading extra packages in the note source.
   \section[
     status=published,
     tag=0CDIJ,
-    label=sec:negative-draft-entry
+    label=\labelNFM{sec:negative-draft-entry}
   ]{Negative test: draft entry in a published section}
   \begin{theorem}
     This draft entry must make a publication build fail.

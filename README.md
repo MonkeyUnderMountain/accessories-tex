@@ -179,9 +179,13 @@ A minimal draft document needs no registry:
 \begin{document}
 \maketitle
 
-\section[status=draft,tag=A01B2,label=sec:introduction]{Introduction}
+\section[
+  status=draft,
+  tag=A01B2,
+  label=\labelNFM{sec:introduction}
+]{Introduction}
 
-\begin{theorem}[title={Comparison},label=thm:comparison]
+\begin{theorem}[title={Comparison},label=\labelNFM{thm:comparison}]
   Two objects with the same universal property are uniquely isomorphic.
 \end{theorem}
 
@@ -327,7 +331,7 @@ The optional argument accepts either the traditional title or a key list:
   title={Fundamental comparison},
   status=published,
   tag=A01B2C3,
-  label=thm:fundamental-comparison
+  label=\labelNFM{thm:fundamental-comparison}
 ]
   The statement goes here.
 \end{theorem}
@@ -345,6 +349,14 @@ The metadata-aware environments are `definition`, `proposition`, `theorem`,
 `lemma`, `corollary`, `conjecture`, `question`, `remark`, `claim`, `example`,
 `exercise`, `construction`, `notation`, and `mainthm`.
 
+Wrap statement and division metadata labels in `\labelNFM{...}`. The command is
+an expandable bridge: the class receives the plain label name, while TexLab can
+recognize the label definition when
+`texlab.experimental.labelDefinitionCommands` includes `"labelNFM"`. Continue
+to use ordinary `\label{...}` for equations, proof steps, cases, listings, and
+other standard LaTeX constructs. Registry records store label names for
+validation rather than define labels, so their `label` fields remain plain.
+
 ### Tagging Divisions
 
 Chapters, sections, and subsections accept the same publication keys plus an
@@ -355,7 +367,7 @@ optional short title:
   short-title={Comparison},
   status=published,
   tag=A01B2,
-  label=sec:comparison
+  label=\labelNFM{sec:comparison}
 ]{A comparison theorem and its applications}
 ```
 
@@ -625,7 +637,7 @@ The class performs the following work during one XeLaTeX compilation:
 optional theorem/division argument
               │
               ▼
-        parse metadata keys
+ parse metadata keys and expand \labelNFM
               │
               ▼
  validate status, tag hierarchy, and registry record
@@ -655,9 +667,10 @@ The implementation is divided into these blocks:
 4. **Statement wrapper.** The original `amsthm` begin/end commands are saved,
    then each supported environment is redefined through one generic wrapper.
    `\nfm_statement_parse:n` accepts either an old-fashioned optional title or
-   the `title`, `status`, `tag`, and `label` keys. Preparation validates the
-   entry and builds the visible heading tag. The original environment then
-   performs numbering and typesetting.
+   the `title`, `status`, `tag`, and `label` keys. The `label` key expands
+   `\labelNFM{...}` to the plain source-label string before preparation
+   validates the entry and builds the visible heading tag. The original
+   environment then performs numbering and typesetting.
 5. **Statement references.** After the original environment advances its
    counter, `\nfm_make_statement_reference:nn` builds two cleveref displays: a
    compact local form such as `Theorem 3.1.2 (Tag A01B2C3)` and a book-qualified

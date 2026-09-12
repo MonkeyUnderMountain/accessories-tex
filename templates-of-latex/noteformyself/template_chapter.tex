@@ -34,14 +34,14 @@
 \section[
   status=published,
   tag=0CH01,
-  label=sec:chapter-preview
+  label=\labelNFM{sec:chapter-preview}
 ]{Published chapter material}
 
 \begin{theorem}[
   title={A small test theorem},
   status=published,
   tag=0CH0101,
-  label=thm:chapter-preview
+  label=\labelNFM{thm:chapter-preview}
 ]
   A quiet page can retain a strong hierarchy and a permanent identity.
 \end{theorem}
@@ -49,7 +49,7 @@
 \subsection[
   status=published,
   tag=0CH0102,
-  label=subsec:chapter-preview
+  label=\labelNFM{subsec:chapter-preview}
 ]{A tagged subsection}
 
 The compact references are \cref{sec:chapter-preview},
@@ -62,64 +62,85 @@ The compact references are \cref{sec:chapter-preview},
   short-title={Environment gallery},
   status=draft,
   tag=0CH02,
-  label=sec:chapter-gallery
+  label=\labelNFM{sec:chapter-gallery}
 ]{Draft environment gallery}
 
-\subsection[tag=0CH0201,label=subsec:chapter-gallery]{Statements and proofs}
+\subsection[
+  tag=0CH0201,
+  label=\labelNFM{subsec:chapter-gallery}
+]{Statements and proofs}
 
 \begin{slogan}
   A template should make the mathematical hierarchy visible at a glance.
 \end{slogan}
 
-\begin{mainthm}[title={Chapter comparison},label=mainthm:chapter]
+\begin{mainthm}[
+  title={Chapter comparison},
+  label=\labelNFM{mainthm:chapter}
+]
   The three compilation modes share one statement vocabulary.
 \end{mainthm}
 
-\begin{definition}[title={Affine spectrum},label=def:chapter]
+\begin{definition}[
+  title={Affine spectrum},
+  label=\labelNFM{def:chapter}
+]
   For a ring \(A\), the space \(\operatorname{Spec}(A)\) consists of its prime
   ideals with the Zariski topology and its structure sheaf.
 \end{definition}
 
-\begin{proposition}[label=prop:chapter]
+\begin{proposition}[label=\labelNFM{prop:chapter}]
   The inverse image of a basic open set under a morphism of affine schemes is
   basic open.
 \end{proposition}
 
-\begin{lemma}[title={Localization test},label=lem:chapter]
+\begin{lemma}[
+  title={Localization test},
+  label=\labelNFM{lem:chapter}
+]
   Localization commutes with finite colimits of modules.
 \end{lemma}
 
-\begin{corollary}[label=cor:chapter]
+\begin{corollary}[label=\labelNFM{cor:chapter}]
   A localization of a finitely presented module is finitely presented.
 \end{corollary}
 
-\begin{conjecture}[label=conj:chapter]
+\begin{conjecture}[label=\labelNFM{conj:chapter}]
   The comparison remains true after replacing schemes by suitable stacks.
 \end{conjecture}
 
-\begin{question}[title={Minimal hypotheses},label=ques:chapter]
+\begin{question}[
+  title={Minimal hypotheses},
+  label=\labelNFM{ques:chapter}
+]
   Which finiteness assumption is actually used in the argument?
 \end{question}
 
-\begin{example}[tag=0CH0202,label=eg:chapter]
+\begin{example}[tag=0CH0202,label=\labelNFM{eg:chapter}]
   The affine line is \(\mathbb{A}^1_k=\operatorname{Spec}(k[t])\). The displayed
   draft tag is provisional and is absent from \cref{eg:chapter}.
 \end{example}
 
-\begin{exercise}[label=ex:chapter]
+\begin{exercise}[label=\labelNFM{ex:chapter}]
   Compute the standard-open cover of \(\mathbb{P}^1_k\).
 \end{exercise}
 
-\begin{construction}[title={Gluing two affine lines},label=constr:chapter]
+\begin{construction}[
+  title={Gluing two affine lines},
+  label=\labelNFM{constr:chapter}
+]
   Glue \(\operatorname{Spec}(k[t])\) and \(\operatorname{Spec}(k[t^{-1}])\)
   along \(\operatorname{Spec}(k[t,t^{-1}])\).
 \end{construction}
 
-\begin{notation}[label=not:chapter]
+\begin{notation}[label=\labelNFM{not:chapter}]
   Denote the resulting scheme by \(\mathbb{P}^1_k\).
 \end{notation}
 
-\begin{remark}[title={About draft references},label=rmk:chapter]
+\begin{remark}[
+  title={About draft references},
+  label=\labelNFM{rmk:chapter}
+]
   Draft references display only the current type and number.
 \end{remark}
 
@@ -130,7 +151,7 @@ The compact references are \cref{sec:chapter-preview},
     Ordinary statements share one counter; \texttt{mainthm} uses letters.
   \end{step}
 
-  \begin{claim}[label=claim:chapter]
+  \begin{claim}[label=\labelNFM{claim:chapter}]
     The visual style does not alter the underlying amsthm semantics.
   \end{claim}
 
@@ -151,7 +172,10 @@ The gallery supports references to \cref{def:chapter}, \cref{prop:chapter},
 % =============================================================================
 % Mathematics, diagrams, lists, and code
 % =============================================================================
-\subsection[tag=0CH0203,label=subsec:chapter-features]{Typesetting features}
+\subsection[
+  tag=0CH0203,
+  label=\labelNFM{subsec:chapter-features}
+]{Typesetting features}
 
 The text font is Libertinus Serif, headings use Libertinus Sans, and source-like
 material uses Source Code Pro. Mathematics uses Libertinus Math, with STIX Two
