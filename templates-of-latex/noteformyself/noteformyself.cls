@@ -795,24 +795,16 @@
               }
           }
       }
+    % Provisional draft tags are validated above but omitted from headings.
     \tl_if_blank:VF \l_nfm_statement_tag_tl
       {
-        \tl_if_eq:VnTF \l_nfm_statement_status_tl { published }
+        \tl_if_eq:VnT \l_nfm_statement_status_tl { published }
           {
             \cs_set_protected:Npx \noteformyselfstatementtag
               {
                 \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
-                    { \exp_not:V \l_nfm_statement_tag_tl }) }
-              }
-          }
-          {
-            \cs_set_protected:Npx \noteformyselfstatementtag
-              {
-                \space
-                \exp_not:N \mbox
-                  { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_statement_tag_tl }) }
               }
           }
@@ -1037,24 +1029,16 @@
               }
           }
       }
+    % Structural headings display permanent published tags only.
     \tl_if_blank:VF \l_nfm_division_tag_tl
       {
-        \tl_if_eq:VnTF \l_nfm_division_status_tl { published }
+        \tl_if_eq:VnT \l_nfm_division_status_tl { published }
           {
             \cs_set_protected:Npx \noteformyselfdivisiontag
               {
                 \space
                 \exp_not:N \mbox
                   { \exp_not:N \normalfont (Tag~\exp_not:N \texttt
-                    { \exp_not:V \l_nfm_division_tag_tl }) }
-              }
-          }
-          {
-            \cs_set_protected:Npx \noteformyselfdivisiontag
-              {
-                \space
-                \exp_not:N \mbox
-                  { \exp_not:N \normalfont (Draft~tag~\exp_not:N \texttt
                     { \exp_not:V \l_nfm_division_tag_tl }) }
               }
           }

@@ -313,8 +313,10 @@ allocation hierarchy.
 - A section containing any draft mathematical content is itself a draft
   section. Publication normally proceeds section by section, or as a chapter or
   book composed from published sections.
-- A draft entry may omit its tag. A supplied draft tag is provisional, appears
-  as `Draft tag ...` in its heading, and is not globally reserved.
+- A draft entry may omit its tag. A supplied draft tag remains provisional and
+  is checked for valid format, but is hidden in headings and references and is
+  not globally reserved. This applies to both structural headings and
+  theorem-like entries; the document-level draft watermark is independent.
 - A visible heading tag stays together as one unit, but may move as a whole to
   the next line when it does not fit after the title.
 - A published entry requires both a tag and a source label.
