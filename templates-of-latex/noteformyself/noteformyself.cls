@@ -1333,7 +1333,7 @@
 
 \gdef\@texsource{}
 \newcommand{\texsource}[1]{\gdef\@texsource{#1}}
-\gdef\@version{2.0.0}
+\gdef\@version{0.0.1}
 \newcommand{\version}[1]{\gdef\@version{#1}}
 \gdef\@copyrightyear{\number\year}
 \newcommand{\copyrightyear}[1]{\gdef\@copyrightyear{#1}}
