@@ -532,7 +532,9 @@
           {\fontsize{10pt}{12pt}\selectfont\bfseries\MakeUppercase{#1}\par}%
           \vspace{8pt}%
         }%
-        {\fontsize{34pt}{40pt}\selectfont\bfseries\@title\par}%
+        {\fontsize{32pt}{40pt}\selectfont\bfseries
+          \spaceskip=1.25\fontdimen2\font\relax
+          \@title\par}%
       };
 
       \nfm@drawcoverimage
