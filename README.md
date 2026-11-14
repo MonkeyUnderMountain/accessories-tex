@@ -1,15 +1,16 @@
 # accessories-tex
 
 Shared LaTeX infrastructure for Tianle Yang's mathematical notes. The main
-component is `noteformyself` 2.0, a XeLaTeX class with three compilation modes,
-publication-aware permanent tags, readable theorem styles, and support for
-references between independently compiled notes.
+component is `noteformyself` 2.1, a XeLaTeX class with three compilation modes,
+readable theorem styles, and an optional `noteformyself-tags` package for
+publication-aware permanent tags and references between independently compiled
+notes.
 
 ## Table of Contents
 
 - [Repository Layout](#repository-layout)
 - [The Five Note Repositories](#the-five-note-repositories)
-- [`noteformyself` 2.0](#noteformyself-20)
+- [`noteformyself` 2.1](#noteformyself-21)
   - [Requirements](#requirements)
   - [Compilation Modes](#compilation-modes)
   - [Quick Start](#quick-start)
@@ -30,8 +31,8 @@ references between independently compiled notes.
   - [Release Workflow](#release-workflow)
 - [Implementation Guide](#implementation-guide)
   - [Reading the Internal Names](#reading-the-internal-names)
-  - [The Tag Pipeline in the Class](#the-tag-pipeline-in-the-class)
-  - [Reference Files Written by the Class](#reference-files-written-by-the-class)
+  - [The Tag Pipeline in the Package](#the-tag-pipeline-in-the-package)
+  - [Reference Files Written by the Tag Package](#reference-files-written-by-the-tag-package)
   - [The `labels-ref-sync` Pipeline](#the-labels-ref-sync-pipeline)
   - [Responsibility Boundary](#responsibility-boundary)
 - [Management Programs](#management-programs)
@@ -54,6 +55,8 @@ accessories-tex/
 ├── templates-of-latex/
 │   ├── noteformyself/
 │   │   ├── noteformyself.cls
+│   │   ├── noteformyself-tags.sty
+│   │   ├── template_plain.tex
 │   │   ├── template_book.tex
 │   │   ├── template_chapter.tex
 │   │   ├── template_section.tex
@@ -64,10 +67,11 @@ accessories-tex/
 └── tomb_of_typst/                       archived Typst experiments
 ```
 
-The three source templates are executable documentation. Each shows every
+The three tagged mode templates are executable documentation. Each shows every
 statement environment; the book example additionally previews the full math
 alphabet selection, a citation, a table, a diagram, lists, and a code listing.
 Their compiled PDFs are kept beside the sources as visual references.
+`template_plain.tex` demonstrates ordinary LaTeX syntax without the tag package.
 
 ## The Five Note Repositories
 
@@ -106,12 +110,14 @@ the authoritative content included by all three wrappers. `notes.json` records
 stable IDs, ordering, wrapper paths, statuses, structural tags and labels, and
 public PDF routes.
 
-## `noteformyself` 2.0
+## `noteformyself` 2.1
 
 The class lives at
 [`templates-of-latex/noteformyself/noteformyself.cls`](templates-of-latex/noteformyself/noteformyself.cls).
-Version 2.0 keeps its source organized by responsibility; each block and loaded
-package is commented with its effect so later changes can be made locally.
+The class owns typography, page layout, and theorem presentation. The optional
+[`noteformyself-tags.sty`](templates-of-latex/noteformyself/noteformyself-tags.sty)
+owns publication metadata, registry validation, tagged wrappers, and external
+reference records. Each source is organized and commented by responsibility.
 
 ### Requirements
 
@@ -123,12 +129,12 @@ loads the packages needed for:
 - Chinese text through `ctex`;
 - TikZ and `tikz-cd` diagrams;
 - `biblatex` bibliographies;
-- `hyperref`, `xr-hyper`, and `cleveref` references;
+- `hyperref` and `cleveref` references (`xr-hyper` is loaded by the tag package);
 - `tcolorbox` statement styles;
 - automatic draft watermarks;
 - lists, long tables, footnotes, and source-code listings.
 
-Xy-pic is not loaded in 2.0. New commutative diagrams should use `tikz-cd`.
+Xy-pic is not loaded. New commutative diagrams should use `tikz-cd`.
 
 Compile an example from its directory:
 
@@ -149,7 +155,7 @@ Set `sectionlevel` on the document class:
 | Mode | Base class | Opening | Statement numbering |
 | --- | --- | --- | --- |
 | `book` | `book` | Full cover and information/citation page | Within each section |
-| `chapter` | `article` | Full cover marked `CHAPTER` | Within each section |
+| `chapter` | `article` | Full cover | Within each section |
 | `section` | `article` | Compact author/date line, no cover | One local sequence |
 
 For example:
@@ -160,17 +166,43 @@ For example:
 
 The default mode is `section`; the default publication status is `draft`.
 Selecting `status=draft` on `\documentclass` automatically loads
-`draftwatermark` for the complete output. A later `\notesetup{status=...}` call
+`draftwatermark` for all pages except full covers. A later `\notesetup{status=...}` call
 changes publication validation scope but does not toggle the document-level
 watermark.
 
 ### Quick Start
 
-A minimal draft document needs no registry:
+The class works without a tag package or registry. Use ordinary theorem titles
+and `\label` commands:
+
+```tex
+\documentclass[sectionlevel=section,status=published]{noteformyself}
+\title{Notes on Universal Properties}
+\author{Tianle Yang}
+\begin{document}
+\maketitle
+\section{Comparison}
+\begin{theorem}[Uniqueness]\label{thm:uniqueness}
+  Two objects with the same universal property are uniquely isomorphic.
+\end{theorem}
+See \cref{thm:uniqueness}.
+\end{document}
+```
+
+For permanent tags, explicitly load `\usepackage{noteformyself-tags}` after the
+document class and before any tag command. This package currently supports
+`noteformyself` only. Existing tagged documents need this new loading line;
+their metadata, registry, and reference commands keep the same syntax. Without
+it, the class does not install tagged wrappers, validate publication metadata,
+or write a `.nfm-xref` file. The class `status` option still controls the draft
+watermark.
+
+A tagged draft document also needs no registry:
 
 ```tex
 % !TeX program = xelatex
 \documentclass[sectionlevel=section,status=draft]{noteformyself}
+\usepackage{noteformyself-tags}
 
 \title{A Standalone Section}
 \author{Tianle Yang}
@@ -213,20 +245,39 @@ Standard LaTeX metadata is extended by:
 | `\authorpage{...}` | Author homepage or other formatted contact line |
 | `\citationkey{...}` | Enables a copyable BibTeX `@misc` entry in book mode |
 | `\noteurl{...}` | Adds the URL field to that suggested citation |
-| `\coversentence{...}` | Short sentence near the bottom of a full cover |
-| `\coverimage{...}` | Optional image below the title field |
+| `\coversentence{...}` | Short italic sentence near the lower-right of a full cover |
+| `\coverimage{...}` | Optional centered cover image, with its aspect ratio preserved |
 | `\texsource{...}` | Source note on the book information page |
 | `\version{...}` | Version displayed on the cover and information page |
 | `\copyrightyear{...}` | Overrides the current year |
 
-The visual palette can be adjusted with `\coveraccentcolor`,
-`\coverpapercolor`, `\covertextcolor`, and `\covertitlefont`. The compatibility
-command `\coverlinecolor` now controls the solid accent field.
+The cover line and title colours can be adjusted with `\coveraccentcolor`,
+`\covertextcolor`, and `\covertitlefont`. The compatibility command
+`\coverlinecolor` is an alias for the main accent-line colour. The warm
+secondary line can be changed with `\definecolor{nfmCoverSecondary}{HTML}{...}`.
+`\coverpapercolor` remains accepted for compatibility; the cover no longer
+paints a background colour.
 
-A book cover intentionally has no `BOOK` label. A chapter cover is labeled
-`CHAPTER`. If `\coverimage` is omitted, the center remains open; a missing
-nonempty image produces a warning and the build continues. Long titles use
-fixed-width, ragged-right blocks on the cover and information page.
+Book and chapter covers keep the original layout: title at the top, optional
+image in the centre, quotation near the lower-right, and author/date/version at
+the lower-left. The filled background and solid title band are removed. Fine
+teal and warm-gold line segments below the title and a quiet line above the
+footer provide the decoration. The default cover title family is Libertinus
+Serif, with the document serif as fallback.
+
+Book and chapter covers have no mode label above the title. A missing
+nonempty image produces a warning and the build continues. Cover titles retain
+their original fixed-width, ragged-right block. Section mode keeps its original
+right-aligned author/date line, without adding a separate document-title block.
+
+Chapter, section, and subsection headings retain their original sizes,
+numbering, and spacing, with serif type replacing sans serif. They have no
+added rules. Book running heads use serif type and preserve title case;
+chapter and section builds retain their header-free layout and centred page
+numbers. The theorem backgrounds, colours, rails, and corners are unchanged.
+
+The serif typography and restrained use of colour are informed by
+[handbookformyself](https://github.com/MonkeyUnderMountain/handbookformyself).
 
 ### Typography
 
@@ -235,7 +286,7 @@ The open-source default families are:
 | Use | Typeface |
 | --- | --- |
 | Body text | Libertinus Serif |
-| Headings and interface text | Libertinus Sans |
+| Headings, cover, and book running heads | Libertinus Serif |
 | Tags, suggested BibTeX, and code | Source Code Pro, with Libertinus Mono fallback |
 | Ordinary mathematics, `\mathbb`, and `\mathfrak` | Libertinus Math |
 | `\mathcal` | STIX Two Math |
@@ -247,8 +298,9 @@ ordinary formula specimens for visual checking.
 
 ### Statement Environments
 
-The following numbered environments accept publication metadata and share one
-counter, except `mainthm`, whose global display is `A`, `B`, `C`, and so on:
+The following numbered environments share one counter, except `mainthm`, whose
+global display is `A`, `B`, `C`, and so on. When `noteformyself-tags` is loaded,
+they also accept publication metadata:
 
 | Filled background | Left rail only |
 | --- | --- |
@@ -285,6 +337,8 @@ publication-tagged statement wrappers. Ordinary `\label` works for `step` and
 `case`.
 
 ## Permanent Tags
+
+Load `\usepackage{noteformyself-tags}` to enable everything in this section.
 
 A theorem number records a current location. A tag records the permanent
 identity of published mathematical content. Tags are ordinary searchable and
@@ -360,8 +414,8 @@ The metadata-aware environments are `definition`, `proposition`, `theorem`,
 `exercise`, `construction`, `notation`, and `mainthm`.
 
 Wrap statement and division metadata labels in `\labelNFM{...}`. The command is
-an expandable bridge: the class receives the plain label name, while TexLab can
-recognize the label definition when
+an expandable bridge: the tag package receives the plain label name, while
+TexLab can recognize the label definition when
 `texlab.experimental.labelDefinitionCommands` includes `"labelNFM"`. Continue
 to use ordinary `\label{...}` for equations, proof steps, cases, listings, and
 other standard LaTeX constructs. Registry records store label names for
@@ -426,11 +480,15 @@ A retired record adds its last published number and replacement:
 }
 ```
 
-Print a frozen record with `\NoteTagRecord{A01B2C2}`. The class requires every
-declared replacement to exist, but redirect-chain and cycle validation belongs
-to the external registry tool.
+Print a frozen record with `\NoteTagRecord{A01B2C2}`. The tag package requires
+every declared replacement to exist, but redirect-chain and cycle validation
+belongs to the external registry tool.
 
 ## References Between Documents
+
+The commands below are provided by `noteformyself-tags`; load it explicitly
+in both source and importing documents. Ordinary local `\ref` and `\cref`
+remain available without it.
 
 Local published references have the form:
 
@@ -447,13 +505,14 @@ A cross-repository reference includes the source book:
 A draft local reference is simply `Theorem 3.1.3`. Draft external records use
 their available structural locator and never claim a permanent tag.
 
-Version 2.0 defines singular custom `\cref` output. Use one tagged/draft label
-per `\cref` call; plural and range formatting for the custom reference records
-is a possible later extension.
+The tag package defines singular custom `\cref` output. Use one tagged/draft
+label per `\cref` call; plural and range formatting for the custom reference
+records is a possible later extension.
 
 ### Direct Auxiliary-File References
 
-Every build writes its ordinary `.aux` file and a companion `.nfm-xref` file.
+Every build using the tag package writes its ordinary `.aux` file and a
+companion `.nfm-xref` file.
 The first keeps references inside the same book compact; the companion stores
 the book-qualified text needed by an external consumer.
 
@@ -615,10 +674,10 @@ provenance.
 ## Implementation Guide
 
 This section explains the two longer implementations: the tag subsystem in
-`noteformyself.cls` and the `labels-ref-sync` program. Their public commands are
-small; most of the code preserves old LaTeX syntax, produces useful errors,
-keeps internal and external references different, and treats downloaded data
-as untrusted input.
+`noteformyself-tags.sty` and the `labels-ref-sync` program. Their public commands
+are small; most of the code preserves old LaTeX syntax, produces useful errors,
+keeps internal and external references different, and treats downloaded data as
+untrusted input.
 
 ### Reading the Internal Names
 
@@ -640,9 +699,10 @@ For example, `\g_nfm_section_tag_tl` is the global current section-tag string,
 while `\l_nfm_statement_label_tl` is the label being processed for one
 statement.
 
-### The Tag Pipeline in the Class
+### The Tag Pipeline in the Package
 
-The class performs the following work during one XeLaTeX compilation:
+When explicitly loaded, the tag package performs the following work during
+one XeLaTeX compilation:
 
 ```text
 optional theorem/division argument
@@ -700,13 +760,13 @@ Published statements are checked against the registry by book, environment
 type, and source label. Their current chapter and section are deliberately not
 compared with the allocation prefix: an unchanged statement may move and keep
 its permanent tag. Deciding whether a mathematical change requires a new tag
-remains an author decision; the class cannot infer semantic equivalence.
+remains an author decision; the tag package cannot infer semantic equivalence.
 
-### Reference Files Written by the Class
+### Reference Files Written by the Tag Package
 
 Every normal `\label` writes an ordinary `.aux` entry containing its number,
-page, and exact Hyperref PDF destination. The class also writes a companion
-`.nfm-xref` entry for metadata-aware labels:
+page, and exact Hyperref PDF destination. The tag package also writes a
+companion `.nfm-xref` entry for metadata-aware labels:
 
 | File | Intended consumer | Display style |
 | --- | --- | --- |
@@ -733,7 +793,7 @@ complete book build.
 3. **Restricted TeX parsing.** `parse_commands()` and `parse_braced()` read only
    the expected `\newlabel` and `\NoteExternalReference` records. General TeX
    is never evaluated. Display text and anchors pass strict allowlists; the only
-   recognized formatting markup is the class-generated monospace tag.
+   recognized formatting markup is the tag package's monospace tag.
 4. **Record extraction.** `reference_records()` joins each ordinary label with
    its cleveref record and optional external display. It extracts the number,
    page, anchor, status, and tag into plain Python dictionaries.
@@ -767,9 +827,9 @@ links to every other section.
 
 ### Responsibility Boundary
 
-The class and program intentionally enforce different invariants:
+The tag package and program intentionally enforce different invariants:
 
-| Responsibility | `noteformyself.cls` | `labels-ref-sync` |
+| Responsibility | `noteformyself-tags.sty` | `labels-ref-sync` |
 | --- | :---: | :---: |
 | Typeset tags and customize `\cref` | Yes | No |
 | Validate one published entry against a loaded registry | Yes | No |
@@ -784,8 +844,8 @@ The class and program intentionally enforce different invariants:
 The remaining tag-management stage is a global allocator/registry tool. It
 must reserve book, chapter, section, subsection, and entry tags across all five
 repositories; reject reuse; and validate retirement chains and cycles. The
-current class consumes that registry, while `labels-ref-sync` distributes the
-resulting references.
+optional tag package consumes that registry, while `labels-ref-sync` distributes
+the resulting references.
 
 ## Management Programs
 
@@ -843,8 +903,9 @@ manage-notes set-status 1.1 --published 1 --finished 1 --tag Q72M4
 ```
 
 Running `manage-notes sync` migrates existing wrappers: it adds the class status
-and managed `\notesetup` block, removes legacy `draftwatermark` package lines,
-and rewrites managed divisions with `\labelNFM{...}` metadata.
+and managed `\notesetup` block (including the explicit tag-package load), removes
+legacy `draftwatermark` package lines, and rewrites managed divisions with
+`\labelNFM{...}` metadata.
 
 It must run in the context of a consuming note repository. Set
 `MANAGE_NOTES_ROOT=/path/to/repository` when automatic submodule detection is
@@ -867,6 +928,7 @@ latexmk -xelatex template_book.tex
 latexmk -xelatex template_chapter.tex
 latexmk -xelatex template_section.tex
 latexmk -xelatex template_crossref.tex
+latexmk -xelatex template_plain.tex
 ```
 
 The book template contains two disabled negative tests. Define

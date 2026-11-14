@@ -642,6 +642,7 @@ def render_notesetup(
         fields.append(f"chapter-tag={chapter['tag']}")
     fields.append(f"status={document_status(status)}")
     return [
+        r"\usepackage{noteformyself-tags}",
         r"\notesetup{",
         *(
             f"  {field}{',' if index < len(fields) - 1 else ''}"

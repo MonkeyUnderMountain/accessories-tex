@@ -1,0 +1,36 @@
+% !TeX program = xelatex
+% A minimal document without the optional permanent-tag system.
+\documentclass[sectionlevel=section,status=published]{noteformyself}
+
+\title{Notes on Universal Properties}
+\author{Tianle Yang}
+\date{\today}
+
+% For permanent tags and publication-aware references, load explicitly:
+% \usepackage{noteformyself-tags}
+
+\begin{document}
+\maketitle
+
+\section[Universal properties]{Universal properties and comparison maps}
+\label{sec:universal}
+
+Ordinary section titles, optional theorem titles, and labels work without a
+registry or publication metadata. The theorem styles are the same in both
+tagged and untagged documents.
+
+\begin{theorem}[Uniqueness]\label{thm:uniqueness}
+  Two objects with the same universal property are uniquely isomorphic.
+\end{theorem}
+
+\begin{proof}
+  The two universal properties give maps in opposite directions. Uniqueness
+  makes both composites the identity.
+\end{proof}
+
+See \cref{sec:universal,thm:uniqueness}.
+
+\subsection*{Further examples}
+Products, coproducts, and tensor products provide familiar examples.
+
+\end{document}

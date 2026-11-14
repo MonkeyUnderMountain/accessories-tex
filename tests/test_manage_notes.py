@@ -137,6 +137,11 @@ class ManageNotesTest(unittest.TestCase):
             self.assertNotIn("manage-notes:begin watermark", source)
             self.assertNotIn("(draft)", source)
             self.assertIn("% manage-notes:begin setup", source)
+            self.assertEqual(source.count(r"\usepackage{noteformyself-tags}"), 1)
+            self.assertLess(
+                source.index(r"\usepackage{noteformyself-tags}"),
+                source.index(r"\notesetup{"),
+            )
 
         self.assertIn("label=\\labelNFM{chap:first-chapter}", book_source)
         self.assertIn("tag=000", book_source)
@@ -197,6 +202,23 @@ class ManageNotesTest(unittest.TestCase):
 
         self.run_manage("sync")
         self.run_manage("validate")
+
+        wrappers = [
+            self.root / "fixture-book.tex",
+            self.root / "chapters/foundations/foundations.tex",
+            self.root / "chapters/foundations/first-results/first-results.tex",
+        ]
+        before = [path.read_text(encoding="utf-8") for path in wrappers]
+        self.run_manage("sync")
+        self.assertEqual(
+            before, [path.read_text(encoding="utf-8") for path in wrappers]
+        )
+        for source in before:
+            self.assertEqual(source.count(r"\usepackage{noteformyself-tags}"), 1)
+            self.assertLess(
+                source.index(r"\usepackage{noteformyself-tags}"),
+                source.index(r"\notesetup{"),
+            )
 
         normalized = self.load_manifest()
         normalized_chapter = normalized["book"]["chapters"][0]
